@@ -1,4 +1,4 @@
-﻿package main
+package main
 
 import (
 	"log"
@@ -12,7 +12,7 @@ func main() {
 	tgbot := telegram.InitializeTelegramBot()
 
 	// Запускаем polling для получения команд от пользователей
-	go telegram.StartPolling(tgbot)
+	go tgbot.StartPolling()
 	log.Println("Бот запущен, ожидание сообщений...")
 
 	// Блокируем main: выход из main завершает все горутины, включая polling

@@ -25,6 +25,8 @@ type SetMyCommandsRequest struct {
 	Commands []BotCommand `json:"commands"`
 }
 
+// InitializeTelegramBot loads .env credentials and constructs the bot, installing
+// command menu and sending a startup notification when enabled.
 func InitializeTelegramBot() *TelegramBot {
 	err := godotenv.Load()
 	if err != nil {
@@ -39,6 +41,8 @@ func InitializeTelegramBot() *TelegramBot {
 	return tgBot
 }
 
+// createTelegramBot builds the bot from credentials; without token or chatID it
+// returns a disabled bot that silently skips all API calls.
 func createTelegramBot(token, chatID string) *TelegramBot {
 	if token == "" || chatID == "" {
 		log.Println("Telegram бот отключен: отсутствуют токен или chatID")
@@ -55,20 +59,17 @@ func createTelegramBot(token, chatID string) *TelegramBot {
 		Enabled: true,
 	}
 
-	if tgBot.Enabled {
-		log.Println("Telegram бот инициализирован")
+	log.Println("Telegram бот инициализирован")
 
-		SetBotCommands(&tgBot)
-
-		SendStartupNotification(&tgBot)
-	} else {
-		log.Println("Telegram бот отключен")
-	}
+	tgBot.SetBotCommands()
+	tgBot.SendStartupNotification()
 
 	return &tgBot
 }
 
-func SetBotCommands(bot *TelegramBot) error {
+// SetBotCommands registers the bot command menu via setMyCommands.
+// A disabled bot is a no-op returning nil.
+func (bot *TelegramBot) SetBotCommands() error {
 	if !bot.Enabled {
 		return nil
 	}
@@ -85,24 +86,14 @@ func SetBotCommands(bot *TelegramBot) error {
 		return fmt.Errorf("ошибка маршалинга команд: %w", err)
 	}
 
-	resp, err := bot.Client.Post(
-		fmt.Sprintf("%s/setMyCommands", bot.BotURL),
-		"application/json",
-		bytes.NewBuffer(jsonData),
-	)
+	resp, err := bot.postJSON("setMyCommands", jsonData)
 	if err != nil {
 		return fmt.Errorf("ошибка установки команд: %w", err)
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("ошибка чтения ответа: %w", err)
-	}
 
 	var apiResp APIResponse
-	if err := json.Unmarshal(body, &apiResp); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %w", err)
+	if err := decodeAPIResponse(resp, &apiResp); err != nil {
+		return err
 	}
 
 	if !apiResp.OK {
@@ -113,8 +104,9 @@ func SetBotCommands(bot *TelegramBot) error {
 	return nil
 }
 
-// StartPolling runs the long polling loop, routing every update to HandleChatMessage.
-func StartPolling(bot *TelegramBot) {
+// StartPolling runs the blocking long polling loop, routing every message update
+// to HandleChatMessage; a disabled bot returns immediately.
+func (bot *TelegramBot) StartPolling() {
 	if !bot.Enabled {
 		log.Println("Polling не запущен: бот отключен")
 		return
@@ -125,7 +117,7 @@ func StartPolling(bot *TelegramBot) {
 	var offset int64 = 0
 
 	for {
-		updates, err := getUpdates(bot, offset)
+		updates, err := bot.getUpdates(offset)
 		if err != nil {
 			log.Printf("Ошибка получения обновлений: %v", err)
 			time.Sleep(5 * time.Second)
@@ -134,30 +126,29 @@ func StartPolling(bot *TelegramBot) {
 
 		for _, update := range updates {
 			offset = update.UpdateID + 1
-			HandleChatMessage(bot, update)
+			bot.HandleChatMessage(update)
 		}
 	}
 }
 
 // getUpdates fetches new updates via long polling (30s hold) restricted to message updates.
-func getUpdates(bot *TelegramBot, offset int64) ([]Update, error) {
-	url := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=30&allowed_updates=%s",
+func (bot *TelegramBot) getUpdates(offset int64) ([]Update, error) {
+	requestURL := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=30&allowed_updates=%s",
 		bot.BotURL, offset, url.QueryEscape(`["message"]`))
 
-	resp, err := bot.Client.Get(url)
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
+	}
+
+	resp, err := bot.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка запроса: %w", err)
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка чтения ответа: %w", err)
-	}
 
 	var response GetUpdatesResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("ошибка парсинга ответа: %w", err)
+	if err := decodeAPIResponse(resp, &response); err != nil {
+		return nil, err
 	}
 
 	if !response.OK {
@@ -165,4 +156,34 @@ func getUpdates(bot *TelegramBot, offset int64) ([]Update, error) {
 	}
 
 	return response.Result, nil
+}
+
+// postJSON sends a POST request with a JSON body to the given bot API method
+// through the configured Doer and returns the response.
+func (bot *TelegramBot) postJSON(method string, body []byte) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost,
+		fmt.Sprintf("%s/%s", bot.BotURL, method),
+		bytes.NewBuffer(body))
+	if err != nil {
+		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	return bot.Client.Do(req)
+}
+
+// decodeAPIResponse reads and closes the response body and unmarshals it into v.
+func decodeAPIResponse(resp *http.Response, v any) error {
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("ошибка чтения ответа: %w", err)
+	}
+
+	if err := json.Unmarshal(body, v); err != nil {
+		return fmt.Errorf("ошибка парсинга ответа: %w", err)
+	}
+
+	return nil
 }

@@ -1,12 +1,19 @@
 package telegram
 
-import "net/http"
+import (
+	"net/http"
+)
+
+// Doer abstracts the HTTP transport used by the bot; *http.Client satisfies it directly.
+type Doer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
 
 // TelegramBot конфигурация Telegram бота
 type TelegramBot struct {
 	Token   string
 	ChatID  string
-	Client  *http.Client
+	Client  Doer
 	BotURL  string
 	Enabled bool
 }

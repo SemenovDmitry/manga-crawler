@@ -7,7 +7,7 @@ import (
 
 // HandleChatMessage routes an incoming update's chat message to the matching command handler.
 // Updates without a message (edited messages, callback queries, etc.) are ignored.
-func HandleChatMessage(bot *TelegramBot, update Update) {
+func (bot *TelegramBot) HandleChatMessage(update Update) {
 	if update.Message == nil {
 		return
 	}
@@ -22,18 +22,20 @@ func HandleChatMessage(bot *TelegramBot, update Update) {
 
 	switch {
 	case text == "/start":
-		handleStart(bot, chatID)
+		bot.handleStart(chatID)
 	case text == "/help":
-		handleHelp(bot, chatID)
+		bot.handleHelp(chatID)
 	default:
-		SendMessageToChat(bot, fmt.Sprintf("%d", chatID), TextUnknownCommand, true)
+		bot.SendMessageToChat(fmt.Sprintf("%d", chatID), TextUnknownCommand, true)
 	}
 }
 
-func handleStart(bot *TelegramBot, chatID int64) {
-	sendMessageToUser(bot, chatID, TextStart)
+// handleStart replies to the chat with the greeting text.
+func (bot *TelegramBot) handleStart(chatID int64) {
+	bot.sendMessageToUser(chatID, TextStart)
 }
 
-func handleHelp(bot *TelegramBot, chatID int64) {
-	sendMessageToUser(bot, chatID, TextHelp)
+// handleHelp replies to the chat with the help text.
+func (bot *TelegramBot) handleHelp(chatID int64) {
+	bot.sendMessageToUser(chatID, TextHelp)
 }
