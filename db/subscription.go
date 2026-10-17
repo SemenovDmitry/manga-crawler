@@ -75,8 +75,7 @@ func GetUserSubscriptions(userID int64) ([]MangaWithSource, error) {
 	database := GetDB()
 
 	rows, err := database.Query(`
-		SELECT m.id, m.source_id, m.url, m.title, m.last_chapter_url, m.last_chapter_title, m.last_check_at, m.created_at, m.updated_at,
-		       s.parser_name, s.base_url
+		SELECT m.id, m.source_id, m.url, m.title, m.last_chapter_url, m.last_chapter_title, m.last_check_at, m.created_at, m.updated_at, s.parser_name, s.base_url
 		FROM manga m
 		JOIN user_subscriptions us ON m.id = us.manga_id
 		JOIN sources s ON m.source_id = s.id
@@ -111,6 +110,9 @@ func GetUserSubscriptions(userID int64) ([]MangaWithSource, error) {
 		}
 
 		mangaList = append(mangaList, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по подпискам: %w", err)
 	}
 
 	return mangaList, nil

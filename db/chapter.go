@@ -34,6 +34,9 @@ func GetChaptersByMangaID(mangaID int) ([]types.Chapter, error) {
 		}
 		chapters = append(chapters, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по главам: %w", err)
+	}
 
 	return chapters, nil
 }

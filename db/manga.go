@@ -45,6 +45,9 @@ func GetMangaBySourceID(sourceID int) ([]types.Manga, error) {
 
 		mangaList = append(mangaList, m)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по манге: %w", err)
+	}
 
 	return mangaList, nil
 }
@@ -222,6 +225,9 @@ func GetMangaSubscribers(mangaID int) ([]types.TelegramUser, error) {
 		}
 
 		subscribers = append(subscribers, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по подписчикам: %w", err)
 	}
 
 	return subscribers, nil

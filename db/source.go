@@ -30,6 +30,9 @@ func GetActiveSources() ([]types.Source, error) {
 		}
 		sources = append(sources, s)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по источникам: %w", err)
+	}
 
 	return sources, nil
 }
