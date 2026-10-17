@@ -25,6 +25,13 @@ type APIResponse struct {
 	Description string `json:"description,omitempty"`
 }
 
+// GetUpdatesResponse ответ на getUpdates
+type GetUpdatesResponse struct {
+	OK          bool     `json:"ok"`
+	Result      []Update `json:"result"`
+	Description string   `json:"description,omitempty"`
+}
+
 // Update структура обновления от Telegram
 type Update struct {
 	UpdateID int64      `json:"update_id"`
@@ -57,10 +64,4 @@ type TgChat struct {
 	Username  string `json:"username,omitempty"`
 	FirstName string `json:"first_name,omitempty"`
 	LastName  string `json:"last_name,omitempty"`
-}
-
-// GetUpdatesResponse ответ на getUpdates
-type GetUpdatesResponse struct {
-	OK     bool     `json:"ok"`
-	Result []Update `json:"result"`
 }

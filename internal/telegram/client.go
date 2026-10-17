@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -24,15 +25,12 @@ type SetMyCommandsRequest struct {
 	Commands []BotCommand `json:"commands"`
 }
 
-// InitTelegramBot инициализация бота из конфига
-func InitTelegramBot() *TelegramBot {
-	// Загружаем переменные из .env файла
+func InitializeTelegramBot() *TelegramBot {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Ошибка загрузки .env файла")
 	}
 
-	// Получаем переменные
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := os.Getenv("TELEGRAM_CHAT_ID")
 
@@ -60,10 +58,8 @@ func createTelegramBot(token, chatID string) *TelegramBot {
 	if tgBot.Enabled {
 		log.Println("Telegram бот инициализирован")
 
-		// Устанавливаем меню команд
 		SetBotCommands(&tgBot)
 
-		// Отправляем уведомление о запуске
 		SendStartupNotification(&tgBot)
 	} else {
 		log.Println("Telegram бот отключен")
@@ -72,7 +68,6 @@ func createTelegramBot(token, chatID string) *TelegramBot {
 	return &tgBot
 }
 
-// SetBotCommands устанавливает меню команд бота
 func SetBotCommands(bot *TelegramBot) error {
 	if !bot.Enabled {
 		return nil
@@ -81,9 +76,6 @@ func SetBotCommands(bot *TelegramBot) error {
 	commands := SetMyCommandsRequest{
 		Commands: []BotCommand{
 			{Command: "start", Description: "Начать работу"},
-			{Command: "sources", Description: "Список источников"},
-			{Command: "add", Description: "Добавить мангу по URL"},
-			{Command: "list", Description: "Мои подписки"},
 			{Command: "help", Description: "Справка"},
 		},
 	}
@@ -121,7 +113,7 @@ func SetBotCommands(bot *TelegramBot) error {
 	return nil
 }
 
-// StartPolling запускает long polling для получения обновлений
+// StartPolling runs the long polling loop, routing every update to HandleChatMessage.
 func StartPolling(bot *TelegramBot) {
 	if !bot.Enabled {
 		log.Println("Polling не запущен: бот отключен")
@@ -142,19 +134,15 @@ func StartPolling(bot *TelegramBot) {
 
 		for _, update := range updates {
 			offset = update.UpdateID + 1
-
-			if update.Message != nil {
-				HandleMessage(bot, update.Message)
-			}
+			HandleChatMessage(bot, update)
 		}
-
-		time.Sleep(100 * time.Millisecond)
 	}
 }
 
-// getUpdates получает обновления от Telegram API
+// getUpdates fetches new updates via long polling (30s hold) restricted to message updates.
 func getUpdates(bot *TelegramBot, offset int64) ([]Update, error) {
-	url := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=30", bot.BotURL, offset)
+	url := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=30&allowed_updates=%s",
+		bot.BotURL, offset, url.QueryEscape(`["message"]`))
 
 	resp, err := bot.Client.Get(url)
 	if err != nil {
@@ -173,7 +161,7 @@ func getUpdates(bot *TelegramBot, offset int64) ([]Update, error) {
 	}
 
 	if !response.OK {
-		return nil, fmt.Errorf("ошибка API Telegram")
+		return nil, fmt.Errorf("ошибка API Telegram: %s", response.Description)
 	}
 
 	return response.Result, nil

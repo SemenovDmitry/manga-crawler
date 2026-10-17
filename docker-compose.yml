@@ -7,33 +7,9 @@ services:
     restart: unless-stopped
     working_dir: /app
     command: ./manga-crawler-backend
-    depends_on:
-      - manga-crawler-db
     environment:
       - TZ=Etc/GMT
-      - DB_HOST=manga-crawler-db
-      - DB_PORT=5432
-      - DB_USER=mangauser
-      - DB_PASSWORD=mangapass
-      - DB_NAME=mangadb
     env_file:
       - .env
     ports:
       - "8080:8080"
-
-  manga-crawler-db:
-    image: postgres:12-alpine
-    container_name: manga-crawler-db
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=mangadb
-      - POSTGRES_USER=mangauser
-      - POSTGRES_PASSWORD=mangapass
-      - TZ=Etc/GMT
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
-volumes:
-  pgdata:
