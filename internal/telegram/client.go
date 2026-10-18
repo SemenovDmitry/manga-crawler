@@ -61,15 +61,15 @@ func createBot(token, chatID string) *Bot {
 
 	log.Println("Telegram бот инициализирован")
 
-	tgBot.SetBotCommands()
-	tgBot.SendStartupNotification()
+	tgBot.setBotCommands()
+	tgBot.sendStartupNotification()
 
 	return &tgBot
 }
 
-// SetBotCommands registers the bot command menu via setMyCommands.
+// setBotCommands registers the bot command menu via setMyCommands.
 // A disabled bot is a no-op returning nil.
-func (bot *Bot) SetBotCommands() error {
+func (bot *Bot) setBotCommands() error {
 	if !bot.Enabled {
 		return nil
 	}
@@ -126,7 +126,7 @@ func (bot *Bot) StartPolling() {
 
 		for _, update := range updates {
 			offset = update.UpdateID + 1
-			bot.HandleChatMessage(update)
+			bot.handleChatMessage(update)
 		}
 	}
 }

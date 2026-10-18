@@ -2,7 +2,7 @@ package telegram
 
 // HTML-тексты сообщений бота (разметка Telegram parse_mode=HTML).
 
-const TextStart = `
+const textStart = `
 	👋 <b>Привет! Я бот для отслеживания манги.</b>
 
 	Я умею:
@@ -13,7 +13,7 @@ const TextStart = `
 	/help — справка
 `
 
-const TextHelp = `
+const textHelp = `
 	📖 <b>Справка по командам:</b>
 
 	<b>Команды:</b>
@@ -21,9 +21,9 @@ const TextHelp = `
 	/help — эта справка
 `
 
-const TextUnknownCommand = "Неизвестная команда. Используйте /help для справки."
+const textUnknownCommand = "Неизвестная команда. Используйте /help для справки."
 
-const TextStartupNotification = `
+const textStartupNotification = `
 	🚀 <b>Манга-трекер запущен!</b>
 	<i>Начинаю отслеживание обновлений...</i>
 `
