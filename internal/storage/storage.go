@@ -5,26 +5,38 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
-var (
-	conn *sql.DB
-	once sync.Once
-)
+// Store provides access to the database-backed repositories.
+type Store struct {
+	db *sql.DB
+}
 
-func GetConnection() *sql.DB {
-	once.Do(func() {
-		var err error
-		conn, err = initDB()
-		if err != nil {
-			log.Fatalf("Ошибка подключения к БД: %v", err)
-		}
-	})
-	return conn
+// NewStore opens the database connection described by the environment
+// and returns a Store backed by it.
+func NewStore() (*Store, error) {
+	db, err := initDB()
+	if err != nil {
+		return nil, err
+	}
+	return &Store{db: db}, nil
+}
+
+// DB exposes the underlying connection for infrastructure tasks
+// such as migrations and ping checks.
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
+// Close closes the underlying database connection.
+func (s *Store) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
 }
 
 func initDB() (*sql.DB, error) {
@@ -33,8 +45,8 @@ func initDB() (*sql.DB, error) {
 	host := os.Getenv("DB_HOST")
 	port := os.Getenv("DB_PORT")
 	user := os.Getenv("DB_USER")
-	password := os.Getenv("DB_PASSWORD")
 	dbname := os.Getenv("DB_NAME")
+	password := os.Getenv("DB_PASSWORD")
 
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
@@ -52,11 +64,4 @@ func initDB() (*sql.DB, error) {
 
 	log.Println("Подключение к базе данных успешно установлено")
 	return database, nil
-}
-
-func Close() error {
-	if conn != nil {
-		return conn.Close()
-	}
-	return nil
 }

@@ -2,6 +2,8 @@ package telegram
 
 import (
 	"net/http"
+
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
 // Doer abstracts the HTTP transport used by the bot; *http.Client satisfies it directly.
@@ -16,6 +18,7 @@ type Bot struct {
 	Client  Doer
 	BotURL  string
 	Enabled bool
+	Store   *storage.Store
 }
 
 // MessageRequest is the outgoing sendMessage payload.

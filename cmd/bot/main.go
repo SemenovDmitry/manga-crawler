@@ -7,11 +7,16 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/telegram"
 )
 
-// main initializes the Telegram bot, starts long polling in a goroutine and blocks forever.
+// main initializes the storage and the Telegram bot, starts long polling
+// in a goroutine and blocks forever.
 func main() {
+	store, err := storage.NewStore()
+	if err != nil {
+		log.Fatalf("Ошибка подключения к БД: %v", err)
+	}
+	defer store.Close()
 
-	db := storage.GetConnection()
-	defer storage.Close()
+	db := store.DB()
 
 	if err := db.Ping(); err != nil {
 		log.Fatalf("База данных недоступна: %v", err)
@@ -21,7 +26,7 @@ func main() {
 		log.Fatalf("Ошибка миграций: %v", err)
 	}
 
-	tgbot := telegram.InitializeBot()
+	tgbot := telegram.InitializeBot(store)
 
 	go tgbot.StartPolling()
 	log.Println("Бот запущен, ожидание сообщений...")

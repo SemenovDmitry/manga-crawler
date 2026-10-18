@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
 // BotCommand структура команды бота
@@ -25,9 +27,9 @@ type SetMyCommandsRequest struct {
 	Commands []BotCommand `json:"commands"`
 }
 
-// InitializeBot loads .env credentials and constructs the bot, installing
-// command menu and sending a startup notification when enabled.
-func InitializeBot() *Bot {
+// InitializeBot loads .env credentials and constructs the bot with the given
+// storage, installing command menu and sending a startup notification when enabled.
+func InitializeBot(store *storage.Store) *Bot {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Файл .env не найден, используются переменные окружения")
 	}
@@ -35,17 +37,17 @@ func InitializeBot() *Bot {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := os.Getenv("TELEGRAM_CHAT_ID")
 
-	tgBot := createBot(token, chatID)
+	tgBot := createBot(token, chatID, store)
 
 	return tgBot
 }
 
 // createBot builds the bot from credentials; without token or chatID it
 // returns a disabled bot that silently skips all API calls.
-func createBot(token, chatID string) *Bot {
+func createBot(token, chatID string, store *storage.Store) *Bot {
 	if token == "" || chatID == "" {
 		log.Println("Telegram бот отключен: отсутствуют токен или chatID")
-		return &Bot{Enabled: false}
+		return &Bot{Enabled: false, Store: store}
 	}
 
 	tgBot := Bot{
@@ -56,6 +58,7 @@ func createBot(token, chatID string) *Bot {
 		},
 		BotURL:  fmt.Sprintf("https://api.telegram.org/bot%s", token),
 		Enabled: true,
+		Store:   store,
 	}
 
 	log.Println("Telegram бот инициализирован")
