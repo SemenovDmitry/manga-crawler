@@ -9,7 +9,7 @@ import (
 // main initializes the Telegram bot, starts long polling in a goroutine and blocks forever.
 func main() {
 
-	tgbot := telegram.InitializeTelegramBot()
+	tgbot := telegram.InitializeBot()
 
 	// Запускаем polling для получения команд от пользователей
 	go tgbot.StartPolling()

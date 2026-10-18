@@ -25,9 +25,9 @@ type SetMyCommandsRequest struct {
 	Commands []BotCommand `json:"commands"`
 }
 
-// InitializeTelegramBot loads .env credentials and constructs the bot, installing
+// InitializeBot loads .env credentials and constructs the bot, installing
 // command menu and sending a startup notification when enabled.
-func InitializeTelegramBot() *TelegramBot {
+func InitializeBot() *Bot {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Ошибка загрузки .env файла")
@@ -36,20 +36,20 @@ func InitializeTelegramBot() *TelegramBot {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := os.Getenv("TELEGRAM_CHAT_ID")
 
-	tgBot := createTelegramBot(token, chatID)
+	tgBot := createBot(token, chatID)
 
 	return tgBot
 }
 
-// createTelegramBot builds the bot from credentials; without token or chatID it
+// createBot builds the bot from credentials; without token or chatID it
 // returns a disabled bot that silently skips all API calls.
-func createTelegramBot(token, chatID string) *TelegramBot {
+func createBot(token, chatID string) *Bot {
 	if token == "" || chatID == "" {
 		log.Println("Telegram бот отключен: отсутствуют токен или chatID")
-		return &TelegramBot{Enabled: false}
+		return &Bot{Enabled: false}
 	}
 
-	tgBot := TelegramBot{
+	tgBot := Bot{
 		Token:  token,
 		ChatID: chatID,
 		Client: &http.Client{
@@ -69,7 +69,7 @@ func createTelegramBot(token, chatID string) *TelegramBot {
 
 // SetBotCommands registers the bot command menu via setMyCommands.
 // A disabled bot is a no-op returning nil.
-func (bot *TelegramBot) SetBotCommands() error {
+func (bot *Bot) SetBotCommands() error {
 	if !bot.Enabled {
 		return nil
 	}
@@ -106,7 +106,7 @@ func (bot *TelegramBot) SetBotCommands() error {
 
 // StartPolling runs the blocking long polling loop, routing every message update
 // to HandleChatMessage; a disabled bot returns immediately.
-func (bot *TelegramBot) StartPolling() {
+func (bot *Bot) StartPolling() {
 	if !bot.Enabled {
 		log.Println("Polling не запущен: бот отключен")
 		return
@@ -132,7 +132,7 @@ func (bot *TelegramBot) StartPolling() {
 }
 
 // getUpdates fetches new updates via long polling (30s hold) restricted to message updates.
-func (bot *TelegramBot) getUpdates(offset int64) ([]Update, error) {
+func (bot *Bot) getUpdates(offset int64) ([]Update, error) {
 	requestURL := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=30&allowed_updates=%s",
 		bot.BotURL, offset, url.QueryEscape(`["message"]`))
 
@@ -160,7 +160,7 @@ func (bot *TelegramBot) getUpdates(offset int64) ([]Update, error) {
 
 // postJSON sends a POST request with a JSON body to the given bot API method
 // through the configured Doer and returns the response.
-func (bot *TelegramBot) postJSON(method string, body []byte) (*http.Response, error) {
+func (bot *Bot) postJSON(method string, body []byte) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodPost,
 		fmt.Sprintf("%s/%s", bot.BotURL, method),
 		bytes.NewBuffer(body))

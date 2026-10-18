@@ -6,7 +6,7 @@ import (
 
 // HandleChatMessage routes an incoming update's chat message to the matching command handler.
 // Updates without a message (edited messages, callback queries, etc.) are ignored.
-func (bot *TelegramBot) HandleChatMessage(update Update) {
+func (bot *Bot) HandleChatMessage(update Update) {
 	if update.Message == nil {
 		return
 	}
@@ -30,11 +30,11 @@ func (bot *TelegramBot) HandleChatMessage(update Update) {
 }
 
 // handleStart replies to the chat with the greeting text.
-func (bot *TelegramBot) handleStart(chatID int64) {
+func (bot *Bot) handleStart(chatID int64) {
 	bot.SendMessageToChat(chatID, TextStart, true)
 }
 
 // handleHelp replies to the chat with the help text.
-func (bot *TelegramBot) handleHelp(chatID int64) {
+func (bot *Bot) handleHelp(chatID int64) {
 	bot.SendMessageToChat(chatID, TextHelp, true)
 }

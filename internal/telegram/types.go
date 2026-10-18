@@ -9,8 +9,8 @@ type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// TelegramBot конфигурация Telegram бота
-type TelegramBot struct {
+// Bot is the Telegram bot configuration.
+type Bot struct {
 	Token   string
 	ChatID  string
 	Client  Doer
@@ -18,8 +18,8 @@ type TelegramBot struct {
 	Enabled bool
 }
 
-// Message структура для отправки сообщения
-type Message struct {
+// MessageRequest is the outgoing sendMessage payload.
+type MessageRequest struct {
 	ChatID                string `json:"chat_id"`
 	Text                  string `json:"text"`
 	ParseMode             string `json:"parse_mode,omitempty"`
@@ -41,21 +41,21 @@ type GetUpdatesResponse struct {
 
 // Update структура обновления от Telegram
 type Update struct {
-	UpdateID int64      `json:"update_id"`
-	Message  *TgMessage `json:"message,omitempty"`
+	UpdateID int64    `json:"update_id"`
+	Message  *Message `json:"message,omitempty"`
 }
 
-// TgMessage структура сообщения от Telegram
-type TgMessage struct {
-	MessageID int64   `json:"message_id"`
-	From      *TgUser `json:"from,omitempty"`
-	Chat      *TgChat `json:"chat"`
-	Date      int64   `json:"date"`
-	Text      string  `json:"text,omitempty"`
+// Message is a message received from Telegram.
+type Message struct {
+	MessageID int64  `json:"message_id"`
+	From      *User  `json:"from,omitempty"`
+	Chat      *Chat  `json:"chat"`
+	Date      int64  `json:"date"`
+	Text      string `json:"text,omitempty"`
 }
 
-// TgUser пользователь Telegram (из API)
-type TgUser struct {
+// User is a Telegram user as returned by the API.
+type User struct {
 	ID        int64  `json:"id"`
 	IsBot     bool   `json:"is_bot"`
 	FirstName string `json:"first_name"`
@@ -63,8 +63,8 @@ type TgUser struct {
 	Username  string `json:"username,omitempty"`
 }
 
-// TgChat чат Telegram
-type TgChat struct {
+// Chat is a Telegram chat.
+type Chat struct {
 	ID        int64  `json:"id"`
 	Type      string `json:"type"`
 	Title     string `json:"title,omitempty"`

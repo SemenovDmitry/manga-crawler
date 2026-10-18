@@ -4,7 +4,7 @@ import "strconv"
 
 // SendStartupNotification announces the bot startup in the service chat configured
 // in TELEGRAM_CHAT_ID. A disabled bot is a no-op returning nil.
-func (bot *TelegramBot) SendStartupNotification() error {
+func (bot *Bot) SendStartupNotification() error {
 	if !bot.Enabled {
 		return nil
 	}
