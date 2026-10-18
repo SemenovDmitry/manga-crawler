@@ -28,9 +28,8 @@ type SetMyCommandsRequest struct {
 // InitializeBot loads .env credentials and constructs the bot, installing
 // command menu and sending a startup notification when enabled.
 func InitializeBot() *Bot {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Ошибка загрузки .env файла")
+	if err := godotenv.Load(); err != nil {
+		log.Println("Файл .env не найден, используются переменные окружения")
 	}
 
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
