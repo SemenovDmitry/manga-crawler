@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -26,16 +25,16 @@ func (bot *TelegramBot) HandleChatMessage(update Update) {
 	case text == "/help":
 		bot.handleHelp(chatID)
 	default:
-		bot.SendMessageToChat(fmt.Sprintf("%d", chatID), TextUnknownCommand, true)
+		bot.SendMessageToChat(chatID, TextUnknownCommand, true)
 	}
 }
 
 // handleStart replies to the chat with the greeting text.
 func (bot *TelegramBot) handleStart(chatID int64) {
-	bot.sendMessageToUser(chatID, TextStart)
+	bot.SendMessageToChat(chatID, TextStart, true)
 }
 
 // handleHelp replies to the chat with the help text.
 func (bot *TelegramBot) handleHelp(chatID int64) {
-	bot.sendMessageToUser(chatID, TextHelp)
+	bot.SendMessageToChat(chatID, TextHelp, true)
 }

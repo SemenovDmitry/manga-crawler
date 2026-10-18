@@ -33,3 +33,6 @@ manga-crawler-backend
 # Editor/IDE
 # .idea/
 # .vscode/
+
+
+.gocache/
