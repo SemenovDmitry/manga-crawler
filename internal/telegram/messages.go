@@ -6,8 +6,6 @@ import (
 	"log"
 )
 
-// SendMessageToChat sends an HTML message to the given chat; a disabled preview strips the link snippet card.
-// A disabled bot silently succeeds, mirroring the previous per-function behavior.
 func (bot *Bot) sendMessageToChat(chatID int64, text string, disablePreview bool) error {
 	if !bot.Enabled {
 		log.Println("Telegram бот отключен, сообщение не отправлено")

@@ -27,8 +27,6 @@ type SetMyCommandsRequest struct {
 	Commands []BotCommand `json:"commands"`
 }
 
-// InitializeBot loads .env credentials and constructs the bot with the given
-// storage, installing command menu and sending a startup notification when enabled.
 func InitializeBot(store *storage.Store) *Bot {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Файл .env не найден, используются переменные окружения")
@@ -42,8 +40,6 @@ func InitializeBot(store *storage.Store) *Bot {
 	return tgBot
 }
 
-// createBot builds the bot from credentials; without token or chatID it
-// returns a disabled bot that silently skips all API calls.
 func createBot(token, chatID string, store *storage.Store) *Bot {
 	if token == "" || chatID == "" {
 		log.Println("Telegram бот отключен: отсутствуют токен или chatID")
@@ -69,8 +65,6 @@ func createBot(token, chatID string, store *storage.Store) *Bot {
 	return &tgBot
 }
 
-// setBotCommands registers the bot command menu via setMyCommands.
-// A disabled bot is a no-op returning nil.
 func (bot *Bot) setBotCommands() error {
 	if !bot.Enabled {
 		return nil
@@ -106,8 +100,6 @@ func (bot *Bot) setBotCommands() error {
 	return nil
 }
 
-// StartPolling runs the blocking long polling loop, routing every message update
-// to HandleChatMessage; a disabled bot returns immediately.
 func (bot *Bot) StartPolling() {
 	if !bot.Enabled {
 		log.Println("Polling не запущен: бот отключен")
@@ -133,7 +125,6 @@ func (bot *Bot) StartPolling() {
 	}
 }
 
-// getUpdates fetches new updates via long polling (30s hold) restricted to message updates.
 func (bot *Bot) getUpdates(offset int64) ([]Update, error) {
 	requestURL := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=30&allowed_updates=%s",
 		bot.BotURL, offset, url.QueryEscape(`["message"]`))
@@ -160,8 +151,6 @@ func (bot *Bot) getUpdates(offset int64) ([]Update, error) {
 	return response.Result, nil
 }
 
-// postJSON sends a POST request with a JSON body to the given bot API method
-// through the configured Doer and returns the response.
 func (bot *Bot) postJSON(method string, body []byte) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodPost,
 		fmt.Sprintf("%s/%s", bot.BotURL, method),
@@ -174,7 +163,6 @@ func (bot *Bot) postJSON(method string, body []byte) (*http.Response, error) {
 	return bot.Client.Do(req)
 }
 
-// decodeAPIResponse reads and closes the response body and unmarshals it into v.
 func decodeAPIResponse(resp *http.Response, v any) error {
 	defer resp.Body.Close()
 

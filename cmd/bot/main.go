@@ -7,8 +7,6 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/telegram"
 )
 
-// main initializes the storage and the Telegram bot, starts long polling
-// in a goroutine and blocks forever.
 func main() {
 	store, err := storage.NewStore()
 	if err != nil {

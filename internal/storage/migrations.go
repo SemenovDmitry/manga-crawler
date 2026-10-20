@@ -11,7 +11,6 @@ import (
 //go:embed migrations/*.sql
 var embedMigrations embed.FS
 
-// RunMigrations applies pending database migrations embedded in the binary.
 func RunMigrations(database *sql.DB) error {
 	goose.SetBaseFS(embedMigrations)
 

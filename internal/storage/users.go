@@ -5,8 +5,6 @@ import (
 	"fmt"
 )
 
-// ChatUser is a chat record where the bot was started, storing the profile
-// of the user who activated it.
 type ChatUser struct {
 	ChatID    int64
 	Username  string
@@ -15,10 +13,6 @@ type ChatUser struct {
 	UpdatedAt sql.NullTime
 }
 
-// CreateChatUser inserts the chat record or refreshes the activating user's
-// profile on conflict, so repeated /start commands keep the record up to date.
-// An existing chat is reactivated instead of being overwritten with a new flag,
-// and the stored row (including DB-generated timestamps) is returned.
 func (s *Store) CreateChatUser(user ChatUser) (ChatUser, error) {
 	const query = `
 		INSERT INTO chat_users (chat_id, username, is_active)
@@ -42,8 +36,6 @@ func (s *Store) CreateChatUser(user ChatUser) (ChatUser, error) {
 	return stored, nil
 }
 
-// GetChatUser returns the chat record by the chat's Telegram id;
-// the error wraps sql.ErrNoRows when the chat is not found.
 func (s *Store) GetChatUser(chatID int64) (ChatUser, error) {
 	const query = `
 		SELECT chat_id, username, is_active, created_at, updated_at

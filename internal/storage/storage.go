@@ -10,13 +10,10 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Store provides access to the database-backed repositories.
 type Store struct {
 	db *sql.DB
 }
 
-// NewStore opens the database connection described by the environment
-// and returns a Store backed by it.
 func NewStore() (*Store, error) {
 	db, err := initDB()
 	if err != nil {
@@ -25,13 +22,10 @@ func NewStore() (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// DB exposes the underlying connection for infrastructure tasks
-// such as migrations and ping checks.
 func (s *Store) DB() *sql.DB {
 	return s.db
 }
 
-// Close closes the underlying database connection.
 func (s *Store) Close() error {
 	if s.db != nil {
 		return s.db.Close()

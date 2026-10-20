@@ -6,12 +6,10 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
-// Doer abstracts the HTTP transport used by the bot; *http.Client satisfies it directly.
 type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// Bot is the Telegram bot configuration.
 type Bot struct {
 	Token   string
 	ChatID  string
@@ -21,7 +19,6 @@ type Bot struct {
 	Store   *storage.Store
 }
 
-// MessageRequest is the outgoing sendMessage payload.
 type MessageRequest struct {
 	ChatID                string `json:"chat_id"`
 	Text                  string `json:"text"`
@@ -48,7 +45,6 @@ type Update struct {
 	Message  *Message `json:"message,omitempty"`
 }
 
-// Message is a message received from Telegram.
 type Message struct {
 	MessageID int64  `json:"message_id"`
 	From      *User  `json:"from,omitempty"`
@@ -57,7 +53,6 @@ type Message struct {
 	Text      string `json:"text,omitempty"`
 }
 
-// User is a Telegram user as returned by the API.
 type User struct {
 	ID        int64  `json:"id"`
 	IsBot     bool   `json:"is_bot"`
@@ -66,7 +61,6 @@ type User struct {
 	Username  string `json:"username,omitempty"`
 }
 
-// Chat is a Telegram chat.
 type Chat struct {
 	ID        int64  `json:"id"`
 	Type      string `json:"type"`
