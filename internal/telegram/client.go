@@ -1,14 +1,11 @@
 package telegram
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -22,12 +19,18 @@ type BotCommand struct {
 	Description string `json:"description"`
 }
 
-// SetMyCommandsRequest запрос на установку команд
-type SetMyCommandsRequest struct {
-	Commands []BotCommand `json:"commands"`
+// BotCommandScope область действия меню команд
+type BotCommandScope struct {
+	Type string `json:"type"`
 }
 
-func InitializeBot(store *storage.Store) *Bot {
+// SetMyCommandsRequest запрос на установку команд
+type SetMyCommandsRequest struct {
+	Commands []BotCommand     `json:"commands"`
+	Scope    *BotCommandScope `json:"scope,omitempty"`
+}
+
+func InitializeBot(store *storage.Store) (*Bot, error) {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Файл .env не найден, используются переменные окружения")
 	}
@@ -35,77 +38,72 @@ func InitializeBot(store *storage.Store) *Bot {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := os.Getenv("TELEGRAM_CHAT_ID")
 
-	tgBot := createBot(token, chatID, store)
+	if token == "" {
+		return nil, fmt.Errorf("переменная окружения TELEGRAM_BOT_TOKEN не задана")
+	}
+	if chatID == "" {
+		return nil, fmt.Errorf("переменная окружения TELEGRAM_CHAT_ID не задана")
+	}
 
-	return tgBot
+	bot := createBot(token, chatID, store)
+
+	return bot, nil
 }
 
 func createBot(token, chatID string, store *storage.Store) *Bot {
-	if token == "" || chatID == "" {
-		log.Println("Telegram бот отключен: отсутствуют токен или chatID")
-		return &Bot{Enabled: false, Store: store}
-	}
-
-	tgBot := Bot{
+	bot := Bot{
 		Token:  token,
 		ChatID: chatID,
 		Client: &http.Client{
 			Timeout: 60 * time.Second,
 		},
-		BotURL:  fmt.Sprintf("https://api.telegram.org/bot%s", token),
-		Enabled: true,
-		Store:   store,
+		BotURL: fmt.Sprintf("https://api.telegram.org/bot%s", token),
+		Store:  store,
 	}
 
 	log.Println("Telegram бот инициализирован")
 
-	tgBot.setBotCommands()
-	tgBot.sendStartupNotification()
+	if err := bot.setBotCommands(); err != nil {
+		log.Printf("Ошибка установки меню команд: %v", err)
+	}
+	if err := bot.sendStartupNotification(); err != nil {
+		log.Printf("Ошибка стартового уведомления: %v", err)
+	}
 
-	return &tgBot
+	return &bot
 }
 
 func (bot *Bot) setBotCommands() error {
-	if !bot.Enabled {
-		return nil
+	commands := []BotCommand{
+		{Command: "start", Description: "Начать работу"},
+		{Command: "find", Description: "Поиск манги по названию"},
+		{Command: "list", Description: "Мои подписки"},
+		{Command: "help", Description: "Справка"},
 	}
 
-	commands := SetMyCommandsRequest{
-		Commands: []BotCommand{
-			{Command: "start", Description: "Начать работу"},
-			{Command: "help", Description: "Справка"},
-		},
+	request := SetMyCommandsRequest{
+		Commands: commands,
+		Scope:    nil,
 	}
 
-	jsonData, err := json.Marshal(commands)
-	if err != nil {
-		return fmt.Errorf("ошибка маршалинга команд: %w", err)
-	}
-
-	resp, err := bot.postJSON("setMyCommands", jsonData)
-	if err != nil {
+	if err := bot.callTelegram("setMyCommands", request, nil); err != nil {
 		return fmt.Errorf("ошибка установки команд: %w", err)
-	}
-
-	var apiResp APIResponse
-	if err := decodeAPIResponse(resp, &apiResp); err != nil {
-		return err
-	}
-
-	if !apiResp.OK {
-		return fmt.Errorf("ошибка API: %s", apiResp.Description)
 	}
 
 	log.Println("Меню команд бота установлено")
 	return nil
 }
 
-func (bot *Bot) StartPolling() {
-	if !bot.Enabled {
-		log.Println("Polling не запущен: бот отключен")
-		return
+func (bot *Bot) sendStartupNotification() error {
+	chatID, err := strconv.ParseInt(bot.ChatID, 10, 64)
+	if err != nil {
+		return err
 	}
 
+	return bot.sendMessageToChat(chatID, textStartupNotification, false)
+}
+
+func (bot *Bot) StartPolling() {
 	log.Println("Запуск Telegram polling...")
 
 	var offset int64 = 0
@@ -120,60 +118,13 @@ func (bot *Bot) StartPolling() {
 
 		for _, update := range updates {
 			offset = update.UpdateID + 1
+
+			if update.CallbackQuery != nil {
+				bot.handleCallbackQuery(update.CallbackQuery)
+				continue
+			}
+
 			bot.handleChatMessage(update)
 		}
 	}
-}
-
-func (bot *Bot) getUpdates(offset int64) ([]Update, error) {
-	requestURL := fmt.Sprintf("%s/getUpdates?offset=%d&timeout=30&allowed_updates=%s",
-		bot.BotURL, offset, url.QueryEscape(`["message"]`))
-
-	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
-	}
-
-	resp, err := bot.Client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка запроса: %w", err)
-	}
-
-	var response GetUpdatesResponse
-	if err := decodeAPIResponse(resp, &response); err != nil {
-		return nil, err
-	}
-
-	if !response.OK {
-		return nil, fmt.Errorf("ошибка API Telegram: %s", response.Description)
-	}
-
-	return response.Result, nil
-}
-
-func (bot *Bot) postJSON(method string, body []byte) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodPost,
-		fmt.Sprintf("%s/%s", bot.BotURL, method),
-		bytes.NewBuffer(body))
-	if err != nil {
-		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	return bot.Client.Do(req)
-}
-
-func decodeAPIResponse(resp *http.Response, v any) error {
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("ошибка чтения ответа: %w", err)
-	}
-
-	if err := json.Unmarshal(body, v); err != nil {
-		return fmt.Errorf("ошибка парсинга ответа: %w", err)
-	}
-
-	return nil
 }

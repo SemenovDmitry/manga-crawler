@@ -15,7 +15,7 @@ services:
       timeout: 3s
       retries: 10
 
-  manga-crawler-backend:
+  bot:
     build:
       context: .
       dockerfile: Dockerfile
@@ -33,6 +33,23 @@ services:
         condition: service_healthy
     ports:
       - "8080:8080"
+
+  crawler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: manga-crawler-crawler
+    restart: unless-stopped
+    working_dir: /app
+    command: ./manga-crawler-crawler
+    environment:
+      - TZ=Etc/GMT
+      - DB_HOST=db
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   db-data:

@@ -30,9 +30,13 @@ go.work.sum
 # Build output
 manga-crawler-backend
 
+# Разведка сайтов (cmd/probe)
+probe-output/
+
 # Editor/IDE
 # .idea/
 # .vscode/
 
 
 .gocache/
+.gomodcache/

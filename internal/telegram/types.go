@@ -11,19 +11,46 @@ type Doer interface {
 }
 
 type Bot struct {
-	Token   string
-	ChatID  string
-	Client  Doer
-	BotURL  string
-	Enabled bool
-	Store   *storage.Store
+	Token  string
+	ChatID string
+	Client Doer
+	BotURL string
+	Store  *storage.Store
 }
 
 type MessageRequest struct {
-	ChatID                string `json:"chat_id"`
-	Text                  string `json:"text"`
-	ParseMode             string `json:"parse_mode,omitempty"`
-	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty"`
+	ChatID                string                `json:"chat_id"`
+	Text                  string                `json:"text"`
+	ParseMode             string                `json:"parse_mode,omitempty"`
+	DisableWebPagePreview bool                  `json:"disable_web_page_preview,omitempty"`
+	ReplyMarkup           *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+}
+
+// EditMessageTextRequest запрос на изменение текста отправленного сообщения.
+type EditMessageTextRequest struct {
+	ChatID                string                `json:"chat_id"`
+	MessageID             int64                 `json:"message_id"`
+	Text                  string                `json:"text"`
+	ParseMode             string                `json:"parse_mode,omitempty"`
+	DisableWebPagePreview bool                  `json:"disable_web_page_preview,omitempty"`
+	ReplyMarkup           *InlineKeyboardMarkup `json:"reply_markup,omitempty"`
+}
+
+// AnswerCallbackQueryRequest запрос на подтверждение нажатия inline-кнопки.
+type AnswerCallbackQueryRequest struct {
+	CallbackQueryID string `json:"callback_query_id"`
+	Text            string `json:"text,omitempty"`
+}
+
+// InlineKeyboardButton кнопка inline-клавиатуры.
+type InlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
+}
+
+// InlineKeyboardMarkup inline-клавиатура (ряды кнопок).
+type InlineKeyboardMarkup struct {
+	InlineKeyboard [][]InlineKeyboardButton `json:"inline_keyboard"`
 }
 
 // APIResponse структура ответа от Telegram API
@@ -41,8 +68,17 @@ type GetUpdatesResponse struct {
 
 // Update структура обновления от Telegram
 type Update struct {
-	UpdateID int64    `json:"update_id"`
-	Message  *Message `json:"message,omitempty"`
+	UpdateID      int64          `json:"update_id"`
+	Message       *Message       `json:"message,omitempty"`
+	CallbackQuery *CallbackQuery `json:"callback_query,omitempty"`
+}
+
+// CallbackQuery нажатие inline-кнопки.
+type CallbackQuery struct {
+	ID      string   `json:"id"`
+	From    *User    `json:"from,omitempty"`
+	Message *Message `json:"message,omitempty"`
+	Data    string   `json:"data,omitempty"`
 }
 
 type Message struct {

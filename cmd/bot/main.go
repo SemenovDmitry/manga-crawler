@@ -14,19 +14,13 @@ func main() {
 	}
 	defer store.Close()
 
-	db := store.DB()
-
-	if err := db.Ping(); err != nil {
-		log.Fatalf("База данных недоступна: %v", err)
+	telegramBot, err := telegram.InitializeBot(store)
+	if err != nil {
+		log.Fatalf("Ошибка инициализации Telegram-бота: %v", err)
 	}
 
-	if err := storage.RunMigrations(db); err != nil {
-		log.Fatalf("Ошибка миграций: %v", err)
-	}
-
-	tgbot := telegram.InitializeBot(store)
-
-	go tgbot.StartPolling()
+	go telegramBot.StartPolling()
+	go telegramBot.StartNotificationDispatch()
 	log.Println("Бот запущен, ожидание сообщений...")
 
 	// Блокируем main: выход из main завершает все горутины, включая polling
