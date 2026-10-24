@@ -1,4 +1,4 @@
-server-start:
+bot-start:
 	go run ./cmd/bot/main.go
 
 build:
