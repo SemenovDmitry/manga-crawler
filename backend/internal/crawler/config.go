@@ -1,5 +1,3 @@
-// Package crawler — обход сайтов-источников: первичная загрузка каталога
-// через sitemap и периодическая перепроверка подписанных манг.
 package crawler
 
 import (
@@ -8,9 +6,6 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/env"
 )
 
-// Config — параметры работы краулера.
-// Расписание полных обходов хранится в БД по каждому источнику
-// (sources.next_full_crawl_at, sources.full_crawl_interval_secs).
 type Config struct {
 	Interval          time.Duration // пауза между проходами (по умолчанию 30 минут)
 	RequestDelay      time.Duration // пауза между запросами к сайту (вежливость)
@@ -23,16 +18,14 @@ type Config struct {
 	BadPagesDir string
 }
 
-// ConfigFromEnv собирает Config из переменных окружения CRAWL_*,
-// подставляя значения по умолчанию для незаданных или некорректных.
 func ConfigFromEnv() Config {
 	return Config{
-		Interval:                env.Duration("CRAWL_INTERVAL", 30*time.Minute),
-		RequestDelay:            env.Duration("CRAWL_REQUEST_DELAY", time.Second),
-		MangaRefreshLimit:       env.Int("CRAWL_MANGA_REFRESH_LIMIT", 200),
-		SkipInitialFull:         env.Bool("CRAWL_SKIP_FULL", false),
-		ForceFull:               env.Bool("CRAWL_FORCE_FULL", false),
-		Once:                    env.Bool("CRAWL_ONCE", false),
-		BadPagesDir:             env.String("CRAWL_BAD_PAGES_DIR", "probe-output"),
+		Interval:          env.Duration("CRAWL_INTERVAL", 30*time.Minute),
+		RequestDelay:      env.Duration("CRAWL_REQUEST_DELAY", time.Second),
+		MangaRefreshLimit: env.Int("CRAWL_MANGA_REFRESH_LIMIT", 200),
+		SkipInitialFull:   env.Bool("CRAWL_SKIP_FULL", false),
+		ForceFull:         env.Bool("CRAWL_FORCE_FULL", false),
+		Once:              env.Bool("CRAWL_ONCE", false),
+		BadPagesDir:       env.String("CRAWL_BAD_PAGES_DIR", "probe-output"),
 	}
 }
