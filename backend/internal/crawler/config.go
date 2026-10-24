@@ -1,5 +1,5 @@
 // Package crawler — обход сайтов-источников: первичная загрузка каталога
-// через sitemap и инкрементальные проходы с детектом новых глав.
+// через sitemap и периодическая перепроверка подписанных манг.
 package crawler
 
 import (
@@ -18,13 +18,6 @@ type Config struct {
 	SkipInitialFull   bool          // не выполнять полный обход даже когда подошло расписание
 	ForceFull         bool          // принудительный полный обход всех источников при старте
 	Once              bool          // выполнить один проход и выйти (режим для cron)
-	// CatalogIncrementalPages — сколько первых страниц каталога (по 50
-	// карточек, отсортированных по дате создания) дополнительно проверять
-	// в каждом инкрементальном проходе. Нужно источникам с лимитом sitemap:
-	// новые карточки туда не попадают, пока старые не вытеснятся. 0 —
-	// в инкрементальном проходе каталог не трогать (полный обход всегда
-	// идёт и по sitemap, и по каталогу целиком).
-	CatalogIncrementalPages int
 	// BadPagesDir — каталог для дампов страниц, которые парсер не смог
 	// разобрать (<dir>/<host>/bad-pages/). Пустая строка — дампы отключены.
 	BadPagesDir string
@@ -40,7 +33,6 @@ func ConfigFromEnv() Config {
 		SkipInitialFull:         env.Bool("CRAWL_SKIP_FULL", false),
 		ForceFull:               env.Bool("CRAWL_FORCE_FULL", false),
 		Once:                    env.Bool("CRAWL_ONCE", false),
-		CatalogIncrementalPages: env.Int("CRAWL_CATALOG_PAGES", 2),
 		BadPagesDir:             env.String("CRAWL_BAD_PAGES_DIR", "probe-output"),
 	}
 }

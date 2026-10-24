@@ -19,8 +19,7 @@ const maxCatalogPages = 5000
 // ни о проходах краулера, ни о БД.
 type urlLister interface {
 	// list возвращает URL карточек манги. limit > 0 ограничивает объём
-	// сверху (инкрементальному проходу нужны только первые страницы
-	// каталога с новейшими мангами); 0 — перечислить всё.
+	// сверху; 0 — перечислить всё (полный обход всегда идёт с 0).
 	// При сбое возвращает собранное и ошибку: вызывающий использует
 	// частичный список — недостающее доберут следующие проходы.
 	list(ctx context.Context, src crawlTarget, limit int) ([]string, error)
@@ -135,9 +134,8 @@ type catalogLister struct {
 func (cl catalogLister) list(ctx context.Context, src crawlTarget, maxPages int) ([]string, error) {
 	lister, ok := src.driver.(parsers.CatalogLister)
 	if !ok {
-		if maxPages == 0 { // в инкрементальных проходах не шумим каждые 30 минут
-			log.Printf("[%s] Драйвер не поддерживает обход каталога, перечисление только по sitemap", src.source.Name)
-		}
+		// Каталог используется только в полных обходах, здесь limit всегда 0.
+		log.Printf("[%s] Драйвер не поддерживает обход каталога, перечисление только по sitemap", src.source.Name)
 		return nil, nil
 	}
 

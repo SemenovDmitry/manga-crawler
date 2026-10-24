@@ -235,45 +235,10 @@ func (c *Crawler) crawlSourceFull(ctx context.Context, src crawlTarget) error {
 	return nil
 }
 
-// crawlSourceUpdates — инкрементальный проход: новые URL из sitemap
-// и повторная проверка подписанных манг, не проверявшихся дольше интервала.
+// crawlSourceUpdates — инкрементальный проход: повторная проверка подписанных
+// манг, не проверявшихся дольше интервала. Обнаружение новых манг — задача
+// только полного обхода (sitemap + каталог), поэтому sitemap здесь не трогается.
 func (c *Crawler) crawlSourceUpdates(ctx context.Context, src crawlTarget) error {
-	known, err := c.knownURLParts(src.source.ID)
-	if err != nil {
-		return err
-	}
-
-	urls, err := c.sitemap.list(ctx, src, 0)
-	if err != nil {
-		return err
-	}
-
-	res, err := c.processNewURLs(ctx, src, "Sitemap", urls, known)
-	if err != nil {
-		return err
-	}
-	if res.processed > 0 {
-		log.Printf("[%s] Новых манг из sitemap: %d", src.source.Name, res.processed)
-	}
-
-	// Первые страницы каталога с новейшими мангами: sitemap источника может
-	// быть ограничен (у a.zazaza.me — не больше 10000 URL), и новые карточки
-	// попадают в него не сразу, а вытесняют старые.
-	if c.cfg.CatalogIncrementalPages > 0 {
-		catalogURLs, catalogErr := c.catalog.list(ctx, src, c.cfg.CatalogIncrementalPages)
-		if catalogErr != nil {
-			log.Printf("[%s] Каталог недоступен, новые манги ищу только в sitemap: %v", src.source.Name, catalogErr)
-		}
-
-		catalogRes, err := c.processNewURLs(ctx, src, "Каталог", catalogURLs, known)
-		if err != nil {
-			return err
-		}
-		if catalogRes.processed > 0 {
-			log.Printf("[%s] Новых манг из каталога: %d", src.source.Name, catalogRes.processed)
-		}
-	}
-
 	// Повторная проверка подписанных манг с устаревшими данными
 	stale, err := c.store.GetStaleSubscribedManga(
 		src.source.ID,
