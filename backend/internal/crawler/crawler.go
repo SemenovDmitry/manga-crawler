@@ -235,11 +235,7 @@ func (c *Crawler) crawlSourceFull(ctx context.Context, src crawlTarget) error {
 	return nil
 }
 
-// crawlSourceUpdates — инкрементальный проход: повторная проверка подписанных
-// манг, не проверявшихся дольше интервала. Обнаружение новых манг — задача
-// только полного обхода (sitemap + каталог), поэтому sitemap здесь не трогается.
 func (c *Crawler) crawlSourceUpdates(ctx context.Context, src crawlTarget) error {
-	// Повторная проверка подписанных манг с устаревшими данными
 	stale, err := c.store.GetStaleSubscribedManga(
 		src.source.ID,
 		int(c.cfg.Interval.Seconds()),
