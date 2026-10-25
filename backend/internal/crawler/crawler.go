@@ -27,21 +27,24 @@ type Crawler struct {
 	badPages badPageDumper
 	sitemap  urlLister // перечисление URL через sitemap источника
 	catalog  urlLister // перечисление URL через пагинацию каталога
+	gate     pauseGate // пауза фонового полного обхода на время инкрементального
+	full     fullCrawlTracker
 }
 
 func New(store repo, cfg Config) *Crawler {
 	fetch := NewFetcher()
 	pace := pacer{delay: cfg.RequestDelay}
-	return &Crawler{
+	c := &Crawler{
 		store:    store,
 		cfg:      cfg,
 		fetch:    fetch,
 		pace:     pace,
 		notify:   NewQueueNotifier(store),
 		badPages: badPageDumper{dir: cfg.BadPagesDir},
-		sitemap:  newSitemapLister(fetch),
-		catalog:  newCatalogLister(fetch, pace),
 	}
+	c.sitemap = newSitemapLister(fetch, &c.gate)
+	c.catalog = newCatalogLister(fetch, pace, &c.gate)
+	return c
 }
 
 func (c *Crawler) Run(ctx context.Context) {
@@ -82,10 +85,10 @@ func (c *Crawler) Run(ctx context.Context) {
 	}
 }
 
-// runStartupPasses — стартовый проход по всем источникам: полный обход
-// выполняется только для источников, которые ещё не были полностью пройдены
-// или у которых истёк интервал, остальные — инкрементально.
 func (c *Crawler) runStartupPasses(ctx context.Context, srcs []crawlTarget) {
+	backgroundFull := !c.cfg.Once
+	var dueFull []crawlTarget
+
 	for i := range srcs {
 		if ctx.Err() != nil {
 			return
@@ -105,12 +108,28 @@ func (c *Crawler) runStartupPasses(ctx context.Context, srcs []crawlTarget) {
 			)
 		}
 
-		c.crawlSource(ctx, src, full)
+		switch {
+		case full && backgroundFull:
+			dueFull = append(dueFull, *src)
+			c.crawlSource(ctx, src, false)
+		default:
+			c.crawlSource(ctx, src, full)
+		}
+	}
+
+	// Первый из источников, требующих полного обхода, стартует в фоне сразу;
+	// остальные подхватятся в инкрементальных проходах по расписанию.
+	if len(dueFull) > 0 {
+		c.startFullCrawl(ctx, dueFull[0])
 	}
 
 	c.logDatabaseStats()
 }
 
+// runIncrementalPars — инкрементальный проход по всем источникам.
+// Фоновый полный обход на время прохода ставится на паузу (он замирает
+// между двумя запросами к сайту), поэтому свежие главы не ждут его
+// окончания. Полные обходы по расписанию запускаются в фоне, по одному.
 func (c *Crawler) runIncrementalPars(ctx context.Context) {
 	log.Println("=== Начало инкрементального прохода ===")
 
@@ -124,22 +143,63 @@ func (c *Crawler) runIncrementalPars(ctx context.Context) {
 		return
 	}
 
+	busy, _, done := c.full.state()
+	if busy {
+		ack := c.gate.pause()
+		select {
+		case <-ack:
+			log.Println("Фоновый полный обход приостановлен на время инкрементального прохода")
+		case <-done:
+			log.Println("Фоновый полный обход завершился сам, пауза не потребовалась")
+		case <-ctx.Done():
+			c.gate.resume()
+			return
+		}
+	}
+	// resume идемпотентен и будит приостановленный полный обход после прохода.
+	defer c.gate.resume()
+
+	var dueFull []crawlTarget
 	for i := range sources {
 		if ctx.Err() != nil {
 			return
 		}
 		src := &sources[i]
 
-		full := fullCrawlDue(src.source, time.Now())
-		if full {
-			log.Printf("[%s] Наступило время полного обхода (next_full_crawl_at), запускаю", src.source.Name)
+		if fullCrawlDue(src.source, time.Now()) {
+			if busy {
+				log.Printf("[%s] Полный обход отложен: уже выполняется другой", src.source.Name)
+			} else {
+				dueFull = append(dueFull, *src)
+			}
 		}
 
-		c.crawlSource(ctx, src, full)
+		// Инкрементальная проверка выполняется для всех источников, включая
+		// тот, чей полный обход стоит на паузе: запросы всё равно идут
+		// строго по одному — из этого потока.
+		c.crawlSource(ctx, src, false)
 	}
 
 	c.logDatabaseStats()
 	log.Println("=== Инкрементальный проход завершён ===")
+
+	if len(dueFull) > 0 {
+		c.startFullCrawl(ctx, dueFull[0])
+	}
+}
+
+// startFullCrawl запускает фоновый полный обход источника; одновременно
+// выполняется не более одного. Между тиками он работает без пауз, а на
+// время инкрементальных проходов встаёт на паузу (см. pauseGate).
+func (c *Crawler) startFullCrawl(ctx context.Context, src crawlTarget) {
+	if !c.full.start(src.source.Name) {
+		log.Printf("[%s] Полный обход отложен: уже выполняется другой", src.source.Name)
+		return
+	}
+	go func() {
+		defer c.full.finish()
+		c.crawlSource(ctx, &src, true)
+	}()
 }
 
 func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) {

@@ -28,9 +28,11 @@ type urlLister interface {
 // newSitemapLister и newCatalogLister возвращают реализации перечисления.
 // Драйвер без parsers.CatalogLister (mgeko) в каталоге даёт пустой список —
 // источник тогда работает только по sitemap.
-func newSitemapLister(fetch *Fetcher) urlLister { return sitemapLister{fetch: fetch} }
-func newCatalogLister(fetch *Fetcher, pace pacer) urlLister {
-	return catalogLister{fetch: fetch, pace: pace}
+func newSitemapLister(fetch *Fetcher, gate *pauseGate) urlLister {
+	return sitemapLister{fetch: fetch, gate: gate}
+}
+func newCatalogLister(fetch *Fetcher, pace pacer, gate *pauseGate) urlLister {
+	return catalogLister{fetch: fetch, pace: pace, gate: gate}
 }
 
 // ——— перечисление по sitemap ———
@@ -59,6 +61,7 @@ type urlEntry struct {
 // (обходим индекс карт, если это он); отбор URL — по правилам драйвера.
 type sitemapLister struct {
 	fetch *Fetcher
+	gate  *pauseGate // nil — уступки отключены (тесты)
 }
 
 func (l sitemapLister) list(ctx context.Context, src crawlTarget, _ int) ([]string, error) {
@@ -76,6 +79,11 @@ func (l sitemapLister) list(ctx context.Context, src crawlTarget, _ int) ([]stri
 		for _, ref := range index.Sitemaps {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
+			}
+			// Точка уступки между под-картами: инкрементальный проход
+			// не должен ждать скачивания всего индекса.
+			if err := l.gate.yield(ctx); err != nil {
+				return nil, err
 			}
 			locs, err := l.urlsFromSitemap(ctx, src, ref.Loc)
 			if err != nil {
@@ -129,6 +137,7 @@ func (l sitemapLister) urlsFromSitemap(ctx context.Context, src crawlTarget, sit
 type catalogLister struct {
 	fetch *Fetcher
 	pace  pacer
+	gate  *pauseGate // nil — уступки отключены (тесты)
 }
 
 func (cl catalogLister) list(ctx context.Context, src crawlTarget, maxPages int) ([]string, error) {
@@ -185,6 +194,10 @@ func (cl catalogLister) list(ctx context.Context, src crawlTarget, maxPages int)
 			log.Printf("[%s] Каталог: страниц %d, карточек %d", src.source.Name, pages, len(urls))
 		}
 		if err := cl.pace.wait(ctx); err != nil {
+			return urls, err
+		}
+		// Точка уступки между страницами каталога.
+		if err := cl.gate.yield(ctx); err != nil {
 			return urls, err
 		}
 	}

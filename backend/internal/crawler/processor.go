@@ -69,6 +69,11 @@ func (c *Crawler) processNewURLs(
 		if err := c.pace.wait(ctx); err != nil {
 			return res, err
 		}
+		// Точка уступки: на время инкрементального прохода полный обход
+		// замирает между карточками (см. pauseGate).
+		if err := c.gate.yield(ctx); err != nil {
+			return res, err
+		}
 		if (i+1)%100 == 0 {
 			log.Printf("[%s] %s: %d/%d", src.source.Name, label, i+1, len(urls))
 		}
