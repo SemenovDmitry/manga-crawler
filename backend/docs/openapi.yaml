@@ -1,0 +1,747 @@
+openapi: 3.0.3
+info:
+  title: Manga Crawler Admin API
+  description: |
+    API админ-панели: источники, пользователи чатов бота, манга.
+
+    Защищённые эндпоинты требуют заголовок `Authorization: Bearer <access-токен>`,
+    выданный `POST /auth/login`. Access-токен короткоживущий, обновляется парой
+    через `POST /auth/refresh`.
+  version: 1.0.0
+servers:
+  - url: /admin-api
+tags:
+  - name: auth
+    description: Аутентификация (логин/пароль из env, bcrypt)
+  - name: sources
+    description: Источники обхода
+  - name: chat-users
+    description: Пользователи чатов Telegram-бота
+  - name: manga
+    description: Каталог манги
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Вход
+      description: >
+        Проверяет логин/пароль против env (bcrypt) и выдаёт пару токенов:
+        access (JWT, короткий) + refresh (opaque, ротируется и хранится хэшем в БД).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      summary: Обновление пары токенов
+      description: >
+        Ротация: старый refresh гасится (одноразовый), выдаётся новая пара.
+        Повторное использование уже погашенного токена отклоняется — признак
+        возможной кражи, все токены пары считаются скомпрометированными.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Новая пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Выход
+      description: >
+        Отзывает refresh-токен сессии; access-токен просто доживёт до истечения exp.
+        Bearer access-токен обязателен.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Refresh-токен отозван
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /sources:
+    get:
+      tags: [sources]
+      operationId: listSources
+      summary: Список источников
+      description: >
+        По умолчанию все источники, включая выключенные;
+        enabled=true — только включённые.
+      parameters:
+        - name: enabled
+          in: query
+          required: false
+          description: Фильтр по включённости
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Источники
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /sources/{id}/enabled:
+    patch:
+      tags: [sources]
+      operationId: setSourceEnabled
+      summary: Включить/выключить источник
+      description: >
+        Изменение подхватывается краулером на следующем инкрементальном проходе.
+        Возвращает обновлённый источник.
+      parameters:
+        - $ref: '#/components/parameters/SourceID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnabledRequest'
+      responses:
+        '200':
+          description: Обновлённый источник
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /sources/{id}/recrawl:
+    post:
+      tags: [sources]
+      operationId: resetSourceFullCrawl
+      summary: Сбросить дату полного обхода
+      description: >
+        Сбрасывает next_full_crawl_at: полный обход при следующем проходе
+        краулера. Возвращает обновлённый источник.
+      parameters:
+        - $ref: '#/components/parameters/SourceID'
+      responses:
+        '200':
+          description: Обновлённый источник
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /chat-users:
+    get:
+      tags: [chat-users]
+      operationId: listChatUsers
+      summary: Пользователи чатов бота
+      description: Все пользователи чатов бота; фильтр по доступу опционален.
+      parameters:
+        - name: active
+          in: query
+          required: false
+          description: Фильтр по доступу (chat_users.is_active)
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Пользователи
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatUserList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /chat-users/{chat_id}/enabled:
+    patch:
+      tags: [chat-users]
+      operationId: setChatUserEnabled
+      summary: Заблокировать/разблокировать пользователя
+      description: >
+        Ручная блокировка пользователя админом (chat_users.blocked).
+        Возвращает обновлённого пользователя.
+      parameters:
+        - $ref: '#/components/parameters/ChatID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnabledRequest'
+      responses:
+        '200':
+          description: Обновлённый пользователь
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /manga:
+    get:
+      tags: [manga]
+      operationId: listManga
+      summary: Список манги
+      description: Постраничный список манг с фильтрами. Лимит по умолчанию 50, максимум 200.
+      parameters:
+        - name: source_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: query
+          in: query
+          required: false
+          description: Подстрока для поиска по названию
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/PublicationStatus'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Манга
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MangaList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+    post:
+      tags: [manga]
+      operationId: createManga
+      summary: Создать запись о манге
+      description: >
+        Поля source_id, url, title обязательны; остальное опционально
+        (пустой publication_status превращается в ongoing на уровне БД).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MangaCreate'
+            examples:
+              mangaCreate:
+                value:
+                  source_id: 1
+                  url: asura_2024
+                  title: Одна пьеса
+                  alt_titles: One Piece; Ван-Пис
+                  latest_chapter: '1120'
+                  chapters_count: 1120
+                  publication_status: ongoing
+      responses:
+        '201':
+          description: Созданная манга
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manga'
+              examples:
+                manga:
+                  value:
+                    id: 42
+                    source_id: 1
+                    source_name: grouple
+                    url: asura_2024
+                    title: Одна пьеса
+                    alt_titles: One Piece; Ван-Пис
+                    latest_chapter: '1120'
+                    chapters_count: 1120
+                    publication_status: ongoing
+                    last_check_at: null
+                    created_at: '2025-01-01T12:00:00Z'
+                    updated_at: '2025-01-01T12:00:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /manga/{id}:
+    get:
+      tags: [manga]
+      operationId: getManga
+      summary: Получить мангу по id
+      parameters:
+        - $ref: '#/components/parameters/MangaID'
+      responses:
+        '200':
+          description: Манга
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manga'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+    patch:
+      tags: [manga]
+      operationId: updateManga
+      summary: Редактировать мангу (частично)
+      description: >
+        PATCH-семантика: передаются только редактируемые поля, не указанные
+        остаются без изменений. Обязательно поле title. Источник и url
+        не меняются — это ключ сопоставления карточки при обходе.
+      parameters:
+        - $ref: '#/components/parameters/MangaID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MangaUpdate'
+            examples:
+              mangaUpdate:
+                value:
+                  title: Одна пьеса (новый перевод)
+                  latest_chapter: '1121'
+      responses:
+        '200':
+          description: Обновлённая манга
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manga'
+              examples:
+                manga:
+                  value:
+                    id: 42
+                    source_id: 1
+                    source_name: grouple
+                    url: asura_2024
+                    title: Одна пьеса (новый перевод)
+                    alt_titles: One Piece; Ван-Пис
+                    latest_chapter: '1121'
+                    chapters_count: 1120
+                    publication_status: ongoing
+                    last_check_at: '2025-01-02T12:00:00Z'
+                    created_at: '2025-01-01T12:00:00Z'
+                    updated_at: '2025-01-02T12:00:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+    delete:
+      tags: [manga]
+      operationId: deleteManga
+      summary: Удалить мангу
+      description: >
+        Подписки удаляются каскадом. В теле ответа — удалённая запись
+        (последнее состояние перед удалением).
+      parameters:
+        - $ref: '#/components/parameters/MangaID'
+      responses:
+        '200':
+          description: Удалённая манга
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Manga'
+              examples:
+                deleted:
+                  value:
+                    id: 42
+                    source_id: 1
+                    source_name: grouple
+                    url: asura_2024
+                    title: Одна пьеса
+                    alt_titles: One Piece; Ван-Пис
+                    latest_chapter: '1120'
+                    chapters_count: 1120
+                    publication_status: ongoing
+                    last_check_at: '2025-01-02T12:00:00Z'
+                    created_at: '2025-01-01T12:00:00Z'
+                    updated_at: '2025-01-02T12:00:00Z'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access-токен из POST /auth/login
+
+  parameters:
+    SourceID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    ChatID:
+      name: chat_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    MangaID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  responses:
+    BadRequest:
+      description: Неверный запрос
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Требуется или недействителен access-токен
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Internal:
+      description: Внутренняя ошибка
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: s3cr3t
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in]
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          format: int64
+          description: Срок жизни access-токена, сек
+          example: 900
+
+    EnabledRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+
+    PublicationStatus:
+      type: string
+      enum: [ongoing, completed, hiatus, cancelled, discontinued]
+
+    Source:
+      type: object
+      required:
+        - id
+        - name
+        - base_url
+        - engine
+        - enabled
+        - full_crawl_interval_secs
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        base_url:
+          type: string
+        engine:
+          type: string
+          description: Движок парсера (grouple, mgeko)
+        enabled:
+          type: boolean
+        full_crawled_at:
+          type: string
+          format: date-time
+          nullable: true
+        full_crawl_interval_secs:
+          type: integer
+          format: int64
+        next_full_crawl_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SourceList:
+      type: object
+      required: [sources]
+      properties:
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+
+    ChatUser:
+      type: object
+      required: [chat_id, username, is_active, blocked]
+      properties:
+        chat_id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        is_active:
+          type: boolean
+        blocked:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ChatUserList:
+      type: object
+      required: [users]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatUser'
+
+    MangaCreate:
+      type: object
+      required: [source_id, url, title]
+      properties:
+        source_id:
+          type: integer
+        url:
+          type: string
+          description: Часть адреса карточки, ключ сопоставления при обходе
+        title:
+          type: string
+        alt_titles:
+          type: string
+        latest_chapter:
+          type: string
+        chapters_count:
+          type: integer
+        publication_status:
+          $ref: '#/components/schemas/PublicationStatus'
+
+    MangaUpdate:
+      type: object
+      required: [title]
+      description: >
+        Частичное обновление: отсутствующие поля не изменяются.
+      properties:
+        title:
+          type: string
+        alt_titles:
+          type: string
+        latest_chapter:
+          type: string
+        chapters_count:
+          type: integer
+        publication_status:
+          $ref: '#/components/schemas/PublicationStatus'
+
+    Manga:
+      type: object
+      required:
+        - id
+        - source_id
+        - source_name
+        - url
+        - title
+        - alt_titles
+        - latest_chapter
+        - chapters_count
+        - publication_status
+      properties:
+        id:
+          type: integer
+          format: int64
+        source_id:
+          type: integer
+        source_name:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        alt_titles:
+          type: string
+        latest_chapter:
+          type: string
+        chapters_count:
+          type: integer
+        publication_status:
+          $ref: '#/components/schemas/PublicationStatus'
+        last_check_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    MangaList:
+      type: object
+      required: [manga]
+      properties:
+        manga:
+          type: array
+          items:
+            $ref: '#/components/schemas/Manga'

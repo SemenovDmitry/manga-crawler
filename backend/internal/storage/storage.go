@@ -1,0 +1,67 @@
+package storage
+
+import (
+	"database/sql"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+)
+
+type Store struct {
+	db *sql.DB
+}
+
+func NewStore() (*Store, error) {
+	db, err := initDB()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := RunMigrations(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("ошибка миграций: %w", err)
+	}
+
+	return &Store{db: db}, nil
+}
+
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
+func (s *Store) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
+}
+
+func initDB() (*sql.DB, error) {
+	_ = godotenv.Load()
+
+	host := os.Getenv("DB_HOST")
+	port := os.Getenv("DB_PORT")
+	user := os.Getenv("DB_USER")
+	dbname := os.Getenv("DB_NAME")
+	password := os.Getenv("DB_PASSWORD")
+
+	connStr := fmt.Sprintf(
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname,
+	)
+
+	database, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка открытия соединения: %w", err)
+	}
+
+	if err := database.Ping(); err != nil {
+		return nil, fmt.Errorf("ошибка пинга БД: %w", err)
+	}
+
+	log.Println("Подключение к базе данных успешно установлено")
+	return database, nil
+}

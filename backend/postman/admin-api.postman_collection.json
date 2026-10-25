@@ -1,0 +1,742 @@
+{
+	"info": {
+		"name": "Manga Crawler Admin API",
+		"description": "Коллекция для ручного тестирования Admin API (base: {{baseUrl}}/admin-api).\n\nПодготовка:\n1. Заполните переменные username и password (значки коллекции → Variables, или правьте у себя).\n2. Запускайте папку Auth целиком сверху вниз — login сохранит токены в переменные коллекции, остальные запросы подставят их сами.\n3. Папка Manga CRUD использует {{$timestamp}} в url для уникальности и сохраняет {{mangaId}} из ответа create — запускайте её через Collection Runner (порядок важен).\n\nВсе запросы содержат тесты (вкладка Tests) — прогон виден в Test Results каждого ответа и в Collection Runner.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "baseUrl", "value": "http://localhost:8081" },
+		{ "key": "username", "value": "admin" },
+		{ "key": "password", "value": "change-me" },
+		{ "key": "accessToken", "value": "" },
+		{ "key": "refreshToken", "value": "" },
+		{ "key": "sourceId", "value": "1" },
+		{ "key": "chatId", "value": "100" },
+		{ "key": "mangaId", "value": "" }
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"description": "Получение и обновление токенов. login сохраняет accessToken/refreshToken в переменные коллекции — остальные запросы подставляют их автоматически.",
+			"item": [
+				{
+					"name": "login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"",
+									"pm.test('access_token — непустая строка', () => {",
+									"    pm.expect(body.access_token).to.be.a('string').and.to.have.length.above(0);",
+									"});",
+									"pm.test('refresh_token — непустая строка', () => {",
+									"    pm.expect(body.refresh_token).to.be.a('string').and.to.have.length.above(0);",
+									"});",
+									"pm.test('token_type = Bearer', () => pm.expect(body.token_type).to.eql('Bearer'));",
+									"pm.test('expires_in — положительное число', () => {",
+									"    pm.expect(body.expires_in).to.be.above(0);",
+									"});",
+									"",
+									"// Токены — в переменные коллекции для остальных запросов.",
+									"pm.collectionVariables.set('accessToken', body.access_token);",
+									"pm.collectionVariables.set('refreshToken', body.refresh_token);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "auth", "login"]
+						},
+						"description": "Вход по логину/паролю из env сервера. Выдаёт пару access (JWT) + refresh. Refresh одноразовый: каждый refresh выдаёт новую пару, старый гасится."
+					}
+				},
+				{
+					"name": "refresh",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"const oldRefresh = pm.collectionVariables.get('refreshToken');",
+									"",
+									"pm.test('новый refresh отличается от старого (ротация)', () => {",
+									"    pm.expect(body.refresh_token).to.not.eql(oldRefresh);",
+									"});",
+									"pm.test('access_token — непустая строка', () => {",
+									"    pm.expect(body.access_token).to.be.a('string').and.to.have.length.above(0);",
+									"});",
+									"",
+									"pm.collectionVariables.set('accessToken', body.access_token);",
+									"pm.collectionVariables.set('refreshToken', body.refresh_token);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/auth/refresh",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "auth", "refresh"]
+						},
+						"description": "Ротация пары токенов. Старый refresh гасится; повторное использование — 401 (считается признаком кражи)."
+					}
+				},
+				{
+					"name": "logout",
+					"auth": {
+						"type": "bearer",
+						"bearer": [
+							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+						]
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 204 (без тела)', () => pm.response.to.have.status(204));",
+									"pm.test('тело пустое', () => pm.expect(pm.response.text()).to.eql(''));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+							]
+						},
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "auth", "logout"]
+						},
+						"description": "Отзывает refresh-токен. После logout запрос refresh с этим токеном вернёт 401."
+					}
+				}
+			]
+		},
+		{
+			"name": "Sources",
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+				]
+			},
+			"item": [
+				{
+					"name": "list",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('sources — массив', () => pm.expect(body.sources).to.be.an('array'));",
+									"",
+									"if (body.sources.length > 0) {",
+									"    const s = body.sources[0];",
+									"    pm.test('элемент содержит id, name, engine, enabled', () => {",
+									"        pm.expect(s).to.have.all.keys('id', 'name', 'base_url', 'engine', 'enabled', 'full_crawled_at', 'full_crawl_interval_secs', 'next_full_crawl_at');",
+									"    });",
+									"    // Первый источник — в переменную для setEnabled/recrawl.",
+									"    pm.collectionVariables.set('sourceId', String(s.id));",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/sources",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "sources"]
+						},
+						"description": "Все источники, включая выключенные. Опционально ?enabled=true|false."
+					}
+				},
+				{
+					"name": "setEnabled",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('enabled в ответе соответствует запросу', () => {",
+									"    pm.expect(body.enabled).to.eql(true);",
+									"});",
+									"pm.test('id совпадает', () => {",
+									"    pm.expect(Number(body.id)).to.eql(Number(pm.collectionVariables.get('sourceId')));",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"enabled\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/sources/{{sourceId}}/enabled",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "sources", "{{sourceId}}", "enabled"]
+						},
+						"description": "Включение/выключение источника. Подхватывается краулером на следующем проходе."
+					}
+				},
+				{
+					"name": "recrawl",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('next_full_crawl_at сброшен (null)', () => {",
+									"    pm.expect(body.next_full_crawl_at).to.eql(null);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/sources/{{sourceId}}/recrawl",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "sources", "{{sourceId}}", "recrawl"]
+						},
+						"description": "Сброс next_full_crawl_at — полный обход источника при следующем проходе краулера."
+					}
+				}
+			]
+		},
+		{
+			"name": "Chat users",
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+				]
+			},
+			"item": [
+				{
+					"name": "list",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('users — массив', () => pm.expect(body.users).to.be.an('array'));",
+									"",
+									"if (body.users.length > 0) {",
+									"    const u = body.users[0];",
+									"    pm.test('элемент содержит chat_id, username, is_active, blocked', () => {",
+									"        pm.expect(u).to.include.all.keys('chat_id', 'username', 'is_active', 'blocked');",
+									"    });",
+									"    pm.collectionVariables.set('chatId', String(u.chat_id));",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/chat-users",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "chat-users"]
+						},
+						"description": "Пользователи чатов бота. Опционально ?active=true|false."
+					}
+				},
+				{
+					"name": "setEnabled (блокировка)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('blocked = НЕ enabled из запроса', () => {",
+									"    pm.expect(body.blocked).to.eql(false);",
+									"});",
+									"pm.test('chat_id совпадает', () => {",
+									"    pm.expect(Number(body.chat_id)).to.eql(Number(pm.collectionVariables.get('chatId')));",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"enabled\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/chat-users/{{chatId}}/enabled",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "chat-users", "{{chatId}}", "enabled"]
+						},
+						"description": "enabled=false — ручная блокировка пользователя (chat_users.blocked); enabled=true — разблокировка."
+					}
+				}
+			]
+		},
+		{
+			"name": "Manga CRUD",
+			"description": "Полный цикл create → get → update → delete(с телом удалённой записи) → get(404). Запускать через Collection Runner по порядку: create сохраняет {{mangaId}}, update проверяет частичность PATCH.",
+			"auth": {
+				"type": "bearer",
+				"bearer": [
+					{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+				]
+			},
+			"item": [
+				{
+					"name": "list",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('manga — массив', () => pm.expect(body.manga).to.be.an('array'));",
+									"pm.test('не больше limit', () => {",
+									"    pm.expect(body.manga.length).to.be.at.most(2);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga?limit=2&offset=0",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga"],
+							"query": [
+								{ "key": "source_id", "value": "", "disabled": true },
+								{ "key": "query", "value": "", "disabled": true },
+								{ "key": "status", "value": "ongoing", "disabled": true, "description": "ongoing | completed | hiatus | cancelled | discontinued" },
+								{ "key": "limit", "value": "2" },
+								{ "key": "offset", "value": "0" }
+							]
+						},
+						"description": "Постраничный список. limit по умолчанию 50, максимум 200."
+					}
+				},
+				{
+					"name": "create",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 201', () => pm.response.to.have.status(201));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('id присвоен', () => pm.expect(Number(body.id)).to.be.above(0));",
+									"pm.test('publication_status из запроса', () => {",
+									"    pm.expect(body.publication_status).to.eql('ongoing');",
+									"});",
+									"pm.test('source_name подставлен из БД', () => {",
+									"    pm.expect(body.source_name).to.have.length.above(0);",
+									"});",
+									"",
+									"pm.collectionVariables.set('mangaId', String(body.id));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"source_id\": {{sourceId}},\n    \"url\": \"postman_test_{{$timestamp}}\",\n    \"title\": \"Тестовая манга (Postman)\",\n    \"alt_titles\": \"Postman Test Manga\",\n    \"latest_chapter\": \"1\",\n    \"chapters_count\": 1,\n    \"publication_status\": \"ongoing\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga"]
+						},
+						"description": "Обязательны source_id (существующий источник), url и title."
+					}
+				},
+				{
+					"name": "get",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('id совпадает', () => {",
+									"    pm.expect(Number(body.id)).to.eql(Number(pm.collectionVariables.get('mangaId')));",
+									"});",
+									"pm.test('title из create', () => {",
+									"    pm.expect(body.title).to.eql('Тестовая манга (Postman)');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga/{{mangaId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga", "{{mangaId}}"]
+						}
+					}
+				},
+				{
+					"name": "update",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('title обновлён', () => {",
+									"    pm.expect(body.title).to.eql('Тестовая манга (обновлено)');",
+									"});",
+									"pm.test('alt_titles НЕ затёрт — PATCH частичный', () => {",
+									"    pm.expect(body.alt_titles).to.eql('Postman Test Manga');",
+									"});",
+									"pm.test('latest_chapter НЕ затёрт', () => {",
+									"    pm.expect(body.latest_chapter).to.eql('1');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Тестовая манга (обновлено)\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga/{{mangaId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga", "{{mangaId}}"]
+						},
+						"description": "Передаются только редактируемые поля. source_id и url не меняются принципиально."
+					}
+				},
+				{
+					"name": "delete",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 200 (тело с удалённой записью)', () => pm.response.to.have.status(200));",
+									"",
+									"const body = pm.response.json();",
+									"pm.test('id совпадает', () => {",
+									"    pm.expect(Number(body.id)).to.eql(Number(pm.collectionVariables.get('mangaId')));",
+									"});",
+									"pm.test('title — последнее состояние записи', () => {",
+									"    pm.expect(body.title).to.eql('Тестовая манга (обновлено)');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga/{{mangaId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga", "{{mangaId}}"]
+						},
+						"description": "Возвращает удалённую запись (последнее состояние перед удалением)."
+					}
+				},
+				{
+					"name": "get после delete (404)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 404 — запись удалена', () => pm.response.to.have.status(404));",
+									"pm.test('error описан', () => {",
+									"    const body = pm.response.json();",
+									"    pm.expect(body.error).to.have.length.above(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga/{{mangaId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga", "{{mangaId}}"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Errors (негативные)",
+			"description": "Проверка кодов ошибок. Запускать после Auth (нужен валидный accessToken для кейсов 400), порядок не критичен.",
+			"item": [
+				{
+					"name": "без токена — 401",
+					"auth": { "type": "noauth" },
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 401', () => pm.response.to.have.status(401));",
+									"pm.test('WWW-Authenticate: Bearer', () => {",
+									"    pm.expect(pm.response.headers.get('WWW-Authenticate')).to.include('Bearer');",
+									"});",
+									"pm.test('error описан', () => {",
+									"    pm.expect(pm.response.json().error).to.have.length.above(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"auth": { "type": "noauth" },
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/sources",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "sources"]
+						}
+					}
+				},
+				{
+					"name": "неверный пароль — 401",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 401', () => pm.response.to.have.status(401));",
+									"pm.test('error про логин/пароль', () => {",
+									"    pm.expect(pm.response.json().error).to.include('логин');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"definitely-wrong-password\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "auth", "login"]
+						}
+					}
+				},
+				{
+					"name": "невалидный status — 400",
+					"auth": {
+						"type": "bearer",
+						"bearer": [
+							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+						]
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 400', () => pm.response.to.have.status(400));",
+									"pm.test('error перечисляет допустимые статусы', () => {",
+									"    pm.expect(pm.response.json().error).to.include('ongoing');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga?status=bogus",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga"],
+							"query": [
+								{ "key": "status", "value": "bogus" }
+							]
+						}
+					}
+				},
+				{
+					"name": "limit вне диапазона — 400",
+					"auth": {
+						"type": "bearer",
+						"bearer": [
+							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+						]
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 400', () => pm.response.to.have.status(400));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga?limit=201",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga"],
+							"query": [
+								{ "key": "limit", "value": "201" }
+							]
+						}
+					}
+				},
+				{
+					"name": "несуществующая манга — 404",
+					"auth": {
+						"type": "bearer",
+						"bearer": [
+							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+						]
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('код 404', () => pm.response.to.have.status(404));"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/admin-api/manga/999999999",
+							"host": ["{{baseUrl}}"],
+							"path": ["admin-api", "manga", "999999999"]
+						}
+					}
+				}
+			]
+		}
+	]
+}
