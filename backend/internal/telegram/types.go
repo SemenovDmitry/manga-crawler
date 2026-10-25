@@ -1,7 +1,10 @@
 package telegram
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
@@ -56,7 +59,37 @@ type InlineKeyboardMarkup struct {
 // APIResponse структура ответа от Telegram API
 type APIResponse struct {
 	OK          bool   `json:"ok"`
+	ErrorCode   int    `json:"error_code,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+// APIError — ошибка Telegram Bot API: несет error_code, чтобы вызывающий
+// код мог различать причины (403 = пользователь заблокировал бота и т.д.).
+type APIError struct {
+	Method      string
+	ErrorCode   int
+	Description string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("ошибка API %s: [%d] %s", e.Method, e.ErrorCode, e.Description)
+}
+
+// errBotBlockedByUser — описание ошибки Telegram, когда пользователь
+// заблокировал бота (403 Forbidden).
+const errBotBlockedByUser = "Forbidden: bot was blocked by the user"
+
+// IsBotBlockedByUser — ошибка означает, что пользователь заблокировал бота.
+// Description сверяется без учёта регистра: Telegram иногда добавляет суффиксы.
+func IsBotBlockedByUser(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.ErrorCode != http.StatusForbidden {
+		return false
+	}
+	return strings.Contains(strings.ToLower(apiErr.Description), "bot was blocked by the user")
 }
 
 // GetUpdatesResponse ответ на getUpdates

@@ -21,6 +21,13 @@ func (bot *Bot) handleChatMessage(update Update) {
 	text := strings.TrimSpace(msg.Text)
 	chatID := msg.Chat.ID
 
+	if bot.userBlocked(chatID) {
+		if text == "/start" {
+			bot.sendMessageToChat(chatID, textAccessDenied, true)
+		}
+		return
+	}
+
 	switch {
 	case text == "/start":
 		bot.saveChatUser(msg.From, chatID)
@@ -45,6 +52,12 @@ func (bot *Bot) handleCallbackQuery(callback *CallbackQuery) {
 
 	chatID := callback.Message.Chat.ID
 	messageID := callback.Message.MessageID
+
+	// Заблокированным кнопки не отвечают.
+	if bot.userBlocked(chatID) {
+		bot.answerCallbackQuery(callback.ID, textAccessDenied)
+		return
+	}
 
 	prefix, arg, found := strings.Cut(callback.Data, ":")
 	if !found {

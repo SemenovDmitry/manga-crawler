@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/crawler/parsers"
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
 // urlSet — множество url-частей (ключей карточек): известные из БД плюс
@@ -120,7 +121,8 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 	}
 
 	mangaID, err := c.store.UpsertManga(
-		src.source.ID, urlPart, card.Title, card.AltTitles, latestChapter, card.PublicationStatus, len(chapters),
+		src.source.ID, urlPart, card.Title, card.AltTitles, latestChapter,
+		storage.PublicationStatus(card.PublicationStatus), len(chapters),
 	)
 	if err != nil {
 		return err

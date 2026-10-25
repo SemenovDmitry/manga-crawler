@@ -136,7 +136,7 @@ func (f *fakeRepo) GetMangaState(_ int, urlPart string) (storage.MangaState, boo
 	return st, ok, nil
 }
 
-func (f *fakeRepo) UpsertManga(_ int, urlPart, _, _, _, _ string, _ int) (int64, error) {
+func (f *fakeRepo) UpsertManga(_ int, urlPart string, _, _, _ string, _ storage.PublicationStatus, _ int) (int64, error) {
 	f.upserts = append(f.upserts, urlPart)
 	return int64(len(f.upserts)), nil
 }
@@ -386,7 +386,10 @@ type sourcesRepo struct {
 	sources []storage.Source
 }
 
-func (r *sourcesRepo) GetEnabledSources() ([]storage.Source, error) {
+func (r *sourcesRepo) GetSources(filter storage.SourceFilter) ([]storage.Source, error) {
+	if filter.Enabled == nil || !*filter.Enabled {
+		return nil, errors.New("краулер должен запрашивать только включённые источники")
+	}
 	return r.sources, nil
 }
 
@@ -427,6 +430,6 @@ type failingSourcesRepo struct {
 	repo
 }
 
-func (failingSourcesRepo) GetEnabledSources() ([]storage.Source, error) {
+func (failingSourcesRepo) GetSources(filter storage.SourceFilter) ([]storage.Source, error) {
 	return nil, errors.New("бд недоступна")
 }

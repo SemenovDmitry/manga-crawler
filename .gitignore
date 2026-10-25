@@ -40,3 +40,4 @@ probe-output/
 
 .gocache/
 .gomodcache/
+.gopath/

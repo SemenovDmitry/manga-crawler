@@ -52,5 +52,24 @@ services:
       db:
         condition: service_healthy
 
+  adminapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: manga-crawler-adminapi
+    restart: unless-stopped
+    working_dir: /app
+    command: ./manga-crawler-adminapi
+    environment:
+      - TZ=Etc/GMT
+      - DB_HOST=db
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+
 volumes:
   db-data:

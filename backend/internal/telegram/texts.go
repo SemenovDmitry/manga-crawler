@@ -64,3 +64,5 @@ const textNotFollowed = "Вы не были подписаны на: %s"
 const textMangaNotFound = "😕 Манга с ID %d не найдена. Найдите её через /find <название>"
 
 const textEmptyList = "📭 У вас нет подписок. Найдите мангу: /find <название>"
+
+const textAccessDenied = "🚫 Ваш доступ к боту заблокирован."

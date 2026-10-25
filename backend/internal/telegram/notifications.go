@@ -32,6 +32,18 @@ func (bot *Bot) StartNotificationDispatch() {
 		var sentIDs []int64
 		for _, n := range notifications {
 			if err := bot.sendMessageToChat(n.ChatID, n.Text, true); err != nil {
+				if IsBotBlockedByUser(err) {
+					// Пользователь заблокировал бота: is_active = FALSE
+					// автоматически, уведомление снимается с очереди.
+					// Когда пользователь разблокирует бота и напишет ему,
+					// /start вернёт is_active = TRUE, и доставка возобновится.
+					if markErr := bot.Store.MarkChatUserUnavailable(n.ChatID); markErr != nil {
+						log.Printf("Ошибка отметки недоступности чата %d: %v", n.ChatID, markErr)
+					}
+					sentIDs = append(sentIDs, n.ID)
+					log.Printf("Чат %d заблокировал бота, уведомление %d снято с очереди", n.ChatID, n.ID)
+					continue
+				}
 				log.Printf("Ошибка отправки уведомления %d в чат %d: %v", n.ID, n.ChatID, err)
 				continue // оставляем в очереди, попробуем в следующий раз
 			}

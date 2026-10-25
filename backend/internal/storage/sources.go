@@ -2,29 +2,32 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 )
 
-// Source — источник парсинга (сайт с манги).
-type Source struct {
-	ID      int
+var ErrSourceNotFound = errors.New("источник не найден")
+
+type SourceFilter struct {
+	Enabled *bool
 	Name    string
-	BaseURL string
-	// FullCrawledAt — время последнего завершённого полного обхода;
-	// NULL значит, что каталог источника ещё не загружен целиком.
-	FullCrawledAt sql.NullTime
-	// FullCrawlIntervalSecs — персональный интервал полного обхода в секундах
-	// (по умолчанию 1209600 = 2 недели).
+}
+
+func EnabledOnly() SourceFilter {
+	enabled := true
+	return SourceFilter{Enabled: &enabled}
+}
+
+type Source struct {
+	ID                    int
+	Name                  string
+	BaseURL               string
+	FullCrawledAt         sql.NullTime
 	FullCrawlIntervalSecs int64
-	// NextFullCrawlAt — назначенное время следующего полного обхода;
-	// NULL значит «обход нужен при первой возможности».
-	NextFullCrawlAt sql.NullTime
-	// Engine — имя движка сайта, по нему краулер выбирает драйвер
-	// (grouple, mgeko, ...).
-	Engine string
-	// Enabled — источник участвует в обходах; false = сервис временно
-	// выключен (краулер пропускает источник без рестарта).
-	Enabled bool
+	NextFullCrawlAt       sql.NullTime
+	Engine                string
+	Enabled               bool
 }
 
 const sourceColumns = `id, name, base_url, full_crawled_at, full_crawl_interval_secs, next_full_crawl_at, engine, enabled`
@@ -41,9 +44,24 @@ func scanSource(scanner interface{ Scan(dest ...any) error }) (Source, error) {
 	return src, nil
 }
 
-// GetSources возвращает все источники, включая выключенные.
-func (s *Store) GetSources() ([]Source, error) {
-	rows, err := s.db.Query(`SELECT ` + sourceColumns + ` FROM sources ORDER BY id`)
+func (s *Store) GetSources(filter SourceFilter) ([]Source, error) {
+	query := `SELECT ` + sourceColumns + ` FROM sources`
+	var conds []string
+	var args []any
+	if filter.Enabled != nil {
+		args = append(args, *filter.Enabled)
+		conds = append(conds, fmt.Sprintf("enabled = $%d", len(args)))
+	}
+	if filter.Name != "" {
+		args = append(args, filter.Name)
+		conds = append(conds, fmt.Sprintf("name = $%d", len(args)))
+	}
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	query += " ORDER BY id"
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения источников: %w", err)
 	}
@@ -61,43 +79,51 @@ func (s *Store) GetSources() ([]Source, error) {
 	return sources, rows.Err()
 }
 
-// GetEnabledSources возвращает только включённые источники (sources.enabled).
-// Краулер перечитывает их перед каждым проходом, чтобы подхватить
-// включение/выключение источника без рестарта.
-func (s *Store) GetEnabledSources() ([]Source, error) {
-	rows, err := s.db.Query(`SELECT ` + sourceColumns + ` FROM sources WHERE enabled ORDER BY id`)
+func (s *Store) GetSource(id int) (Source, error) {
+	const query = `SELECT ` + sourceColumns + ` FROM sources WHERE id = $1`
+
+	src, err := scanSource(s.db.QueryRow(query, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Source{}, ErrSourceNotFound
+	}
 	if err != nil {
-		return nil, fmt.Errorf("ошибка получения включённых источников: %w", err)
+		return Source{}, fmt.Errorf("ошибка получения источника %d: %w", id, err)
 	}
-	defer rows.Close()
-
-	var sources []Source
-	for rows.Next() {
-		src, err := scanSource(rows)
-		if err != nil {
-			return nil, fmt.Errorf("ошибка чтения источника: %w", err)
-		}
-		sources = append(sources, src)
-	}
-
-	return sources, rows.Err()
-}
-
-// GetSourceByName возвращает источник по имени.
-func (s *Store) GetSourceByName(name string) (Source, error) {
-	query := `SELECT ` + sourceColumns + ` FROM sources WHERE name = $1`
-
-	src, err := scanSource(s.db.QueryRow(query, name))
-	if err != nil {
-		return Source{}, fmt.Errorf("ошибка получения источника %s: %w", name, err)
-	}
-
 	return src, nil
 }
 
-// MarkSourceFullCrawled фиксирует завершённый полный обход источника и
-// назначает следующий по его персональному интервалу. Возвращает назначенное
-// время следующего обхода.
+func (s *Store) SetSourceEnabled(id int, enabled bool) (Source, error) {
+	const query = `
+		UPDATE sources SET enabled = $1
+		WHERE id = $2
+		RETURNING ` + sourceColumns
+
+	src, err := scanSource(s.db.QueryRow(query, enabled, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Source{}, ErrSourceNotFound
+	}
+	if err != nil {
+		return Source{}, fmt.Errorf("ошибка изменения источника %d: %w", id, err)
+	}
+	return src, nil
+}
+
+func (s *Store) ResetSourceFullCrawl(id int) (Source, error) {
+	const query = `
+		UPDATE sources SET next_full_crawl_at = NULL
+		WHERE id = $1
+		RETURNING ` + sourceColumns
+
+	src, err := scanSource(s.db.QueryRow(query, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Source{}, ErrSourceNotFound
+	}
+	if err != nil {
+		return Source{}, fmt.Errorf("ошибка сброса расписания источника %d: %w", id, err)
+	}
+	return src, nil
+}
+
 func (s *Store) MarkSourceFullCrawled(id int) (sql.NullTime, error) {
 	const query = `
 		UPDATE sources
@@ -114,7 +140,6 @@ func (s *Store) MarkSourceFullCrawled(id int) (sql.NullTime, error) {
 	return next, nil
 }
 
-// GetMangaCountBySource — количество карт в БД по каждому источнику (для логов краулера).
 func (s *Store) GetMangaCountBySource() (map[string]int, error) {
 	const query = `
 		SELECT s.name, count(m.id)

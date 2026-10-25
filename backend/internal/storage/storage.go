@@ -14,9 +14,6 @@ type Store struct {
 	db *sql.DB
 }
 
-// NewStore — единая точка инициализации БД: подключение, проверка доступности
-// и применение миграций. Ни бот, ни краулер не должны вызывать RunMigrations
-// вручную — при создании Store схема БД уже актуальна.
 func NewStore() (*Store, error) {
 	db, err := initDB()
 	if err != nil {

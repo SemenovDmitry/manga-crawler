@@ -45,18 +45,14 @@ func InitializeBot(store *storage.Store) (*Bot, error) {
 		return nil, fmt.Errorf("переменная окружения TELEGRAM_CHAT_ID не задана")
 	}
 
-	bot := createBot(token, chatID, store)
-
-	return bot, nil
+	return createBot(token, chatID, store), nil
 }
 
 func createBot(token, chatID string, store *storage.Store) *Bot {
 	bot := Bot{
 		Token:  token,
 		ChatID: chatID,
-		Client: &http.Client{
-			Timeout: 60 * time.Second,
-		},
+		Client: &http.Client{Timeout: 60 * time.Second},
 		BotURL: fmt.Sprintf("https://api.telegram.org/bot%s", token),
 		Store:  store,
 	}

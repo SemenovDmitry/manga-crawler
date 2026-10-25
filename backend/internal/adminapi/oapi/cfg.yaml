@@ -1,0 +1,7 @@
+# oapi-codegen: типы + gin-интерфейс из docs/openapi.yaml.
+# Регенерация: go generate ./internal/adminapi/... (пути — относительно cfg.yaml)
+package: oapi
+generate:
+  models: true          # типы схем: Source, Manga, TokenPair, ...
+  gin-server: true      # ServerInterface + RegisterHandlers (контракт роутов)
+output: api.gen.go

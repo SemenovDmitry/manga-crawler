@@ -2,31 +2,76 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
-// Manga — запись о манге.
+var ErrMangaNotFound = errors.New("манга не найдена")
+
 type Manga struct {
-	ID            int64
-	SourceID      int
-	SourceName    string
-	BaseURL       string
-	URL           string // часть адреса, например "asura_2024"
-	Title         string
-	AltTitles     string
-	LatestChapter string
-	ChaptersCount int
-	// PublicationStatus — ongoing, completed, hiatus, cancelled, discontinued.
-	PublicationStatus string
+	ID                int64
+	SourceID          int
+	SourceName        string
+	BaseURL           string
+	URL               string // часть адреса, например "asura_2024"
+	Title             string
+	AltTitles         string
+	LatestChapter     string
+	ChaptersCount     int
+	PublicationStatus PublicationStatus // см. константы Status* выше
 	LastCheckAt       sql.NullTime
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 }
 
-// Статусы публикации, при которых манга не перепарсируется инкрементально:
-// главы уже не выходят (перевод завершён/приостановлен и т.п.).
-var finalPublicationStatuses = []string{"completed", "hiatus", "cancelled", "discontinued"}
+type PublicationStatus string
+
+const (
+	StatusOngoing      PublicationStatus = "ongoing"
+	StatusCompleted    PublicationStatus = "completed"
+	StatusHiatus       PublicationStatus = "hiatus"
+	StatusCancelled    PublicationStatus = "cancelled"
+	StatusDiscontinued PublicationStatus = "discontinued"
+)
+
+// allPublicationStatuses — все допустимые значения статуса.
+var allPublicationStatuses = []PublicationStatus{
+	StatusOngoing, StatusCompleted, StatusHiatus, StatusCancelled, StatusDiscontinued,
+}
+
+// Valid сообщает, входит ли статус в множество допустимых значений.
+func (s PublicationStatus) Valid() bool {
+	for _, known := range allPublicationStatuses {
+		if s == known {
+			return true
+		}
+	}
+	return false
+}
+
+func (s PublicationStatus) IsFinal() bool {
+	switch s {
+	case StatusCompleted, StatusCancelled, StatusDiscontinued:
+		return true
+	default:
+		return false
+	}
+}
+
+// finalPublicationStatusesSQL — финальные статусы в виде литерала
+// текстового массива PostgreSQL (для `= ANY($n::text[])`).
+func finalPublicationStatusesSQL() string {
+	var final []string
+	for _, s := range allPublicationStatuses {
+		if s.IsFinal() {
+			final = append(final, string(s))
+		}
+	}
+	return "{" + strings.Join(final, ",") + "}"
+}
 
 // MangaState — состояние манги при прошлом проходе (для детекта новых глав).
 type MangaState struct {
@@ -80,7 +125,7 @@ func (s *Store) GetMangaState(sourceID int, urlPart string) (MangaState, bool, e
 // используется ongoing, при обновлении прежнее значение сохраняется —
 // чтобы случайная правка вёрстки не «оживляла» завершённую мангу.
 func (s *Store) UpsertManga(
-	sourceID int, urlPart, title, altTitles, latestChapter, publicationStatus string, chaptersCount int,
+	sourceID int, urlPart, title, altTitles, latestChapter string, publicationStatus PublicationStatus, chaptersCount int,
 ) (int64, error) {
 	const query = `
 		INSERT INTO manga (parse_source_id, url, title, alt_titles, latest_chapter, publication_status, chapters_count, last_check_at)
@@ -107,16 +152,169 @@ func (s *Store) UpsertManga(
 	return id, nil
 }
 
-// GetManga возвращает мангу по ID.
 func (s *Store) GetManga(id int64) (Manga, error) {
 	query := `SELECT ` + mangaColumns + ` ` + mangaFrom + ` WHERE m.id = $1`
 
 	manga, err := scanManga(s.db.QueryRow(query, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Manga{}, ErrMangaNotFound
+	}
 	if err != nil {
 		return Manga{}, fmt.Errorf("ошибка получения манги %d: %w", id, err)
 	}
 
 	return manga, nil
+}
+
+type MangaFilter struct {
+	SourceID          int
+	Query             string
+	PublicationStatus PublicationStatus // пустое значение — фильтр не применяется
+	Limit             int
+	Offset            int
+}
+
+func (s *Store) ListManga(filter MangaFilter) ([]Manga, error) {
+	query := `SELECT ` + mangaColumns + ` ` + mangaFrom
+
+	var conds []string
+	var args []any
+	if filter.SourceID != 0 {
+		args = append(args, filter.SourceID)
+		conds = append(conds, fmt.Sprintf("m.parse_source_id = $%d", len(args)))
+	}
+	if filter.Query != "" {
+		args = append(args, "%"+escapeLike(strings.ToLower(filter.Query))+"%")
+		conds = append(conds, fmt.Sprintf(
+			"(lower(m.title) LIKE $%d ESCAPE '\\' OR lower(m.alt_titles) LIKE $%d ESCAPE '\\')",
+			len(args), len(args),
+		))
+	}
+	if filter.PublicationStatus != "" {
+		args = append(args, filter.PublicationStatus)
+		conds = append(conds, fmt.Sprintf("m.publication_status = $%d", len(args)))
+	}
+	if len(conds) > 0 {
+		query += " WHERE " + strings.Join(conds, " AND ")
+	}
+	query += " ORDER BY m.id"
+
+	if filter.Limit > 0 {
+		args = append(args, filter.Limit)
+		query += fmt.Sprintf(" LIMIT $%d", len(args))
+	}
+	if filter.Offset > 0 {
+		args = append(args, filter.Offset)
+		query += fmt.Sprintf(" OFFSET $%d", len(args))
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения манг: %w", err)
+	}
+	defer rows.Close()
+
+	var results []Manga
+	for rows.Next() {
+		m, err := scanManga(rows)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка чтения манги: %w", err)
+		}
+		results = append(results, m)
+	}
+
+	return results, rows.Err()
+}
+
+func (s *Store) CreateManga(m Manga) (Manga, error) {
+	const query = `
+		INSERT INTO manga (parse_source_id, url, title, alt_titles, latest_chapter, chapters_count, publication_status, last_check_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		RETURNING ` + mangaColumns
+
+	created, err := scanManga(s.db.QueryRow(query,
+		m.SourceID, m.URL, m.Title, m.AltTitles, m.LatestChapter, m.ChaptersCount, m.PublicationStatus,
+	))
+	if err != nil {
+		// Нарушение FK по parse_source_id — источника с таким id нет.
+		var pqErr *pq.Error
+		if errors.As(err, &pqErr) && pqErr.Code == "23503" {
+			return Manga{}, ErrSourceNotFound
+		}
+		return Manga{}, fmt.Errorf("ошибка создания манги: %w", err)
+	}
+
+	return created, nil
+}
+
+type MangaPatch struct {
+	Title             *string
+	AltTitles         *string
+	LatestChapter     *string
+	ChaptersCount     *int
+	PublicationStatus *PublicationStatus
+}
+
+func (s *Store) UpdateManga(id int64, patch MangaPatch) (Manga, error) {
+	var sets []string
+	var args []any
+	args = append(args, id) // $1 — id в WHERE
+
+	if patch.Title != nil {
+		args = append(args, *patch.Title)
+		sets = append(sets, fmt.Sprintf("title = $%d", len(args)))
+	}
+	if patch.AltTitles != nil {
+		args = append(args, *patch.AltTitles)
+		sets = append(sets, fmt.Sprintf("alt_titles = $%d", len(args)))
+	}
+	if patch.LatestChapter != nil {
+		args = append(args, *patch.LatestChapter)
+		sets = append(sets, fmt.Sprintf("latest_chapter = $%d", len(args)))
+	}
+	if patch.ChaptersCount != nil {
+		args = append(args, *patch.ChaptersCount)
+		sets = append(sets, fmt.Sprintf("chapters_count = $%d", len(args)))
+	}
+	if patch.PublicationStatus != nil {
+		args = append(args, *patch.PublicationStatus)
+		sets = append(sets, fmt.Sprintf("publication_status = $%d", len(args)))
+	}
+
+	if len(sets) == 0 {
+		return s.GetManga(id)
+	}
+
+	query := `
+		UPDATE manga SET
+			` + strings.Join(sets, ", ") + `,
+			updated_at         = now()
+		WHERE id = $1
+		RETURNING ` + mangaColumns
+
+	updated, err := scanManga(s.db.QueryRow(query, args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Manga{}, ErrMangaNotFound
+	}
+	if err != nil {
+		return Manga{}, fmt.Errorf("ошибка обновления манги %d: %w", id, err)
+	}
+
+	return updated, nil
+}
+
+func (s *Store) DeleteManga(id int64) (Manga, error) {
+	const query = `DELETE FROM manga WHERE id = $1 RETURNING ` + mangaColumns
+
+	deleted, err := scanManga(s.db.QueryRow(query, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Manga{}, ErrMangaNotFound
+	}
+	if err != nil {
+		return Manga{}, fmt.Errorf("ошибка удаления манги %d: %w", id, err)
+	}
+
+	return deleted, nil
 }
 
 // GetMangaURLs возвращает все url-части манг источника (для диффа sitemap).
@@ -143,10 +341,11 @@ func (s *Store) GetMangaURLs(sourceID int) ([]string, error) {
 
 // GetStaleSubscribedManga возвращает мангу источника с подписчиками,
 // которая не проверялась дольше staleSeconds (для инкрементального прохода).
-// Завершённые, приостановленные и прекращённые манги исключаются: новых
-// глав у них не будет, даже если подписка остаётся.
+// Завершённые и прекращённые манги исключаются: новых глав у них
+// точно не будет, даже если подписка остаётся. Hiatus не исключается:
+// это перерыв без даты окончания, публикация может возобновиться.
 func (s *Store) GetStaleSubscribedManga(sourceID, staleSeconds, limit int) ([]Manga, error) {
-	excluded := "{" + strings.Join(finalPublicationStatuses, ",") + "}"
+	excluded := finalPublicationStatusesSQL()
 
 	query := `SELECT ` + mangaColumns + `
 		` + mangaFrom + `

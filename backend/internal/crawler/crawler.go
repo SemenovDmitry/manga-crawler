@@ -143,9 +143,9 @@ func (c *Crawler) runIncrementalPars(ctx context.Context) {
 }
 
 func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) {
-	passType := "инкрементальный"
+	passType := "инкрементального"
 	if full {
-		passType = "полный"
+		passType = "полного"
 	}
 	log.Printf("[%s] Начало %s прохода", src.source.Name, passType)
 
@@ -278,7 +278,7 @@ func (c *Crawler) logDatabaseStats() {
 }
 
 func (c *Crawler) crawlTargets() ([]crawlTarget, error) {
-	sources, err := c.store.GetEnabledSources()
+	sources, err := c.store.GetSources(storage.EnabledOnly())
 	if err != nil {
 		return nil, fmt.Errorf("ошибка получения источников: %w", err)
 	}

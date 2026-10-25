@@ -12,7 +12,8 @@ type mangaRepo interface {
 	GetMangaState(sourceID int, urlPart string) (storage.MangaState, bool, error)
 	UpsertManga(
 		sourceID int,
-		urlPart, title, altTitles, latestChapter, publicationStatus string,
+		urlPart, title, altTitles, latestChapter string,
+		publicationStatus storage.PublicationStatus,
 		chaptersCount int,
 	) (int64, error)
 	SubscriberChatIDs(mangaID int64) ([]int64, error)
@@ -21,9 +22,7 @@ type mangaRepo interface {
 
 // passRepo — операции с БД для проходов по источникам (crawler.go).
 type passRepo interface {
-	// GetEnabledSources — включённые источники (sources.enabled);
-	// перечитывается в New и перед каждым инкрементальным проходом.
-	GetEnabledSources() ([]storage.Source, error)
+	GetSources(filter storage.SourceFilter) ([]storage.Source, error)
 	// GetMangaURLs — все url-части манг источника (дифф sitemap/каталога).
 	GetMangaURLs(sourceID int) ([]string, error)
 	// GetStaleSubscribedManga — подписанные манги, не проверявшиеся дольше интервала.

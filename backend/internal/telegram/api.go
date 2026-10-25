@@ -70,7 +70,7 @@ func decodeTelegramResponse(resp *http.Response, method string, out any) error {
 		return fmt.Errorf("ошибка парсинга ответа %s: %w", method, err)
 	}
 	if !status.OK {
-		return fmt.Errorf("ошибка API %s: %s", method, status.Description)
+		return &APIError{Method: method, ErrorCode: status.ErrorCode, Description: status.Description}
 	}
 
 	if out != nil {

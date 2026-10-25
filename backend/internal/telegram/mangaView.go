@@ -32,15 +32,15 @@ func mangaLink(manga storage.Manga) string {
 }
 
 // mangaStatusSuffix — подпись статуса публикации для не-ongoing манг.
-func mangaStatusSuffix(status string) string {
+func mangaStatusSuffix(status storage.PublicationStatus) string {
 	switch status {
-	case "completed":
+	case storage.StatusCompleted:
 		return " · 🏁 завершён"
-	case "hiatus":
+	case storage.StatusHiatus:
 		return " · ⏸ приостановлен"
-	case "cancelled":
+	case storage.StatusCancelled:
 		return " · 🚫 отменён"
-	case "discontinued":
+	case storage.StatusDiscontinued:
 		return " · ⛔ прекращён"
 	default:
 		return ""

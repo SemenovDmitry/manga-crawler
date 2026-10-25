@@ -64,9 +64,14 @@ func (s *Store) UserSubscriptions(chatID int64) ([]Manga, error) {
 	return subscriptions, rows.Err()
 }
 
-// SubscriberChatIDs возвращает чаты, подписанные на мангу.
 func (s *Store) SubscriberChatIDs(mangaID int64) ([]int64, error) {
-	const query = `SELECT chat_id FROM subscriptions WHERE manga_id = $1`
+	const query = `
+		SELECT sub.chat_id
+		FROM subscriptions sub
+		JOIN chat_users cu ON cu.chat_id = sub.chat_id
+		WHERE sub.manga_id = $1
+		  AND cu.is_active
+		  AND NOT cu.blocked`
 
 	rows, err := s.db.Query(query, mangaID)
 	if err != nil {
