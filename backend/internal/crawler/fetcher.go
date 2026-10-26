@@ -62,8 +62,10 @@ func (f *Fetcher) Page(ctx context.Context, rawURL string) ([]byte, error) {
 
 // Card скачивает карточку манги; кросс-доменный редирект не
 // переходит — вместо тела возвращается ErrRedirected.
-func (f *Fetcher) Card(ctx context.Context, rawURL string) ([]byte, error) {
-	return f.fetchWithClient(ctx, f.card, rawURL)
+// Необязательный uaOverride подменяет стандартный User-Agent
+// (источники, отдающие SSR только роботам — см. parsers.CardUserAgent).
+func (f *Fetcher) Card(ctx context.Context, rawURL string, uaOverride ...string) ([]byte, error) {
+	return f.fetchWithClient(ctx, f.card, rawURL, uaOverride...)
 }
 
 // fetchWithClient выполняет GET-запрос указанным клиентом с ретрями:
@@ -71,7 +73,7 @@ func (f *Fetcher) Card(ctx context.Context, rawURL string) ([]byte, error) {
 // reset) повторяются с нарастающей паузой; HTTP-статусы, кросс-доменные
 // редиректы и отмена контекста не повторяются — это стабильные ответы,
 // повтор не изменит результат.
-func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawURL string) ([]byte, error) {
+func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawURL string, uaOverride ...string) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt < fetchAttempts; attempt++ {
 		if attempt > 0 {
@@ -84,7 +86,7 @@ func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawU
 			}
 		}
 
-		body, err := f.fetchOnce(ctx, client, rawURL)
+		body, err := f.fetchOnce(ctx, client, rawURL, uaOverride...)
 		if err == nil {
 			return body, nil
 		}
@@ -96,12 +98,16 @@ func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawU
 	return nil, lastErr
 }
 
-func (f *Fetcher) fetchOnce(ctx context.Context, client *http.Client, rawURL string) ([]byte, error) {
+func (f *Fetcher) fetchOnce(ctx context.Context, client *http.Client, rawURL string, uaOverride ...string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
-	req.Header.Set("User-Agent", f.userAgent)
+	userAgent := f.userAgent
+	if len(uaOverride) > 0 && uaOverride[0] != "" {
+		userAgent = uaOverride[0]
+	}
+	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "ru,en;q=0.8")
 

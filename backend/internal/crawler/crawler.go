@@ -241,6 +241,18 @@ func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) 
 	log.Printf("[%s] %s проход завершён", src.source.Name, passType)
 }
 
+// pacedPageLoader возвращает функцию загрузки страниц для догрузки данных
+// драйвером (parsers.ChapterLoader): Fetcher.Page плюс пауза вежливости
+// перед каждым запросом, чтобы API источника не нагружался.
+func (c *Crawler) pacedPageLoader() parsers.PageLoader {
+	return func(ctx context.Context, rawURL string) ([]byte, error) {
+		if err := c.pace.wait(ctx); err != nil {
+			return nil, err
+		}
+		return c.fetch.Page(ctx, rawURL)
+	}
+}
+
 func (c *Crawler) crawlSourceFull(ctx context.Context, src crawlTarget) error {
 	urls, err := c.sitemap.list(ctx, src, 0)
 	if err != nil {
