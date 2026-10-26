@@ -16,6 +16,13 @@ type Config struct {
 	// BadPagesDir — каталог для дампов страниц, которые парсер не смог
 	// разобрать (<dir>/<host>/bad-pages/). Пустая строка — дампы отключены.
 	BadPagesDir string
+	// CardFailureLimit — сколько ошибок парсинга карточек за один проход
+	// источника ведут к его автоотключению и сервисному уведомлению
+	// хозяину. 0 — автоотключение выключено.
+	CardFailureLimit int
+	// OwnerChatID — чат хозяина бота для сервисных сообщений
+	// (TELEGRAM_CHAT_ID). Пустая строка — сервисные сообщения не отправляются.
+	OwnerChatID string
 }
 
 func ConfigFromEnv() Config {
@@ -27,5 +34,7 @@ func ConfigFromEnv() Config {
 		ForceFull:         env.Bool("CRAWL_FORCE_FULL", false),
 		Once:              env.Bool("CRAWL_ONCE", false),
 		BadPagesDir:       env.String("CRAWL_BAD_PAGES_DIR", "probe-output"),
+		CardFailureLimit:  env.Int("CRAWL_CARD_FAILURE_LIMIT", 20),
+		OwnerChatID:       env.String("TELEGRAM_CHAT_ID", ""),
 	}
 }

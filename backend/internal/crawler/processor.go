@@ -24,6 +24,20 @@ type processResult struct {
 	skipped   int // пропущено: уже известны или url-часть не распознана
 }
 
+// cardParseError — не удалось разобрать разметку карточки: драйвер сломан,
+// сайт отдал заглушку или изменил вёрстку. Отличается от сетевого сбоя:
+// именно такие ошибки копятся и при превышении порога отключают источник
+// (см. Crawler.noteCardParseError).
+type cardParseError struct{ err error }
+
+func (e *cardParseError) Error() string { return "ошибка парсинга карточки: " + e.err.Error() }
+func (e *cardParseError) Unwrap() error { return e.err }
+
+func isCardParseError(err error) bool {
+	var parseErr *cardParseError
+	return errors.As(err, &parseErr)
+}
+
 // knownURLParts — множество url-частей манг источника, сохранённых в БД.
 func (c *Crawler) knownURLParts(sourceID int) (urlSet, error) {
 	known, err := c.store.GetMangaURLs(sourceID)
@@ -41,8 +55,10 @@ func (c *Crawler) knownURLParts(sourceID int) (urlSet, error) {
 
 // processNewURLs обрабатывает карточки, url-части которых ещё не встречались
 // в множестве seen (обновляется по ходу: см. urlSet). Ошибки отдельных
-// карточек логируются и проход не прерывают. Между обработками выдерживается
-// пауза вежливости (pacer); label — имя канала для логов прогресса.
+// карточек логируются и проход не прерывают; ошибки парсинга разметки
+// копятся и при превышении порога отключают источник (noteCardParseError).
+// Между обработками выдерживается пауза вежливости (pacer); label — имя
+// канала для логов прогресса.
 func (c *Crawler) processNewURLs(
 	ctx context.Context, src crawlTarget, label string, urls []string, seen urlSet,
 ) (processResult, error) {
@@ -62,8 +78,16 @@ func (c *Crawler) processNewURLs(
 
 		if err := c.processManga(ctx, src, rawURL); err != nil {
 			log.Printf("[%s] Ошибка обработки %s: %v", src.source.Name, rawURL, err)
+			if isCardParseError(err) {
+				// Сломанная разметка копится в серии: порог отключает
+				// источник, остаток списка не обрабатывается.
+				if _, disabled := c.noteCardParseFailure(src); disabled {
+					return res, errSourceDisabled{source: src.source.Name}
+				}
+			}
 		} else {
 			res.processed++
+			c.noteCardParseSuccess(src.source.ID)
 		}
 
 		if err := c.pace.wait(ctx); err != nil {
@@ -80,6 +104,66 @@ func (c *Crawler) processNewURLs(
 	}
 
 	return res, nil
+}
+
+// errSourceDisabled — обход источника прерван его автоотключением
+// (после порога ошибок парсинга). Не логируется как сбой прохода.
+type errSourceDisabled struct{ source string }
+
+func (e errSourceDisabled) Error() string {
+	return "источник " + e.source + " отключён после серии ошибок парсинга"
+}
+
+// noteCardParseSuccess сбрасывает серию ошибок парсинга источника:
+// успешная карточка — сайт жив и разметка на месте.
+func (c *Crawler) noteCardParseSuccess(sourceID int) {
+	c.failMu.Lock()
+	defer c.failMu.Unlock()
+	delete(c.cardFailures, sourceID)
+}
+
+// noteCardParseFailure учитывает ошибку парсинга карточки. Когда серия
+// достигает Config.CardFailureLimit (0 — автоотключение выключено),
+// источник отключается в БД и хозяину ставится сервисное сообщение.
+// consecutive — длина серии; disabled — источник только что отключён.
+func (c *Crawler) noteCardParseFailure(src crawlTarget) (consecutive int, disabled bool) {
+	limit := c.cfg.CardFailureLimit
+	if limit <= 0 {
+		return 0, false
+	}
+
+	c.failMu.Lock()
+	c.cardFailures[src.source.ID]++
+	consecutive = c.cardFailures[src.source.ID]
+	c.failMu.Unlock()
+
+	if consecutive < limit {
+		return consecutive, false
+	}
+
+	log.Printf(
+		"[%s] Порог ошибок парсинга достигнут (%d подряд) — отключаю источник",
+		src.source.Name, consecutive,
+	)
+
+	if _, err := c.store.SetSourceEnabled(src.source.ID, false); err != nil {
+		// Отключить не удалось: проходы продолжатся, ошибки будут копиться,
+		// попытка отключения повторится на следующем достижении порога.
+		// Сервисное сообщение не дублируем — ждём успешного отключения.
+		log.Printf("[%s] ОШИБКА АВТООТКЛЮЧЕНИЯ: %v", src.source.Name, err)
+		return consecutive, false
+	}
+	src.source.Enabled = false
+
+	if c.services != nil {
+		c.services.ServiceMessage(formatSourceDisabledMessage(
+			SourceInfo{Name: src.source.Name, BaseURL: src.source.BaseURL},
+			consecutive,
+			fmt.Errorf("см. свежие дампы bad-pages источника"),
+		))
+	}
+
+	return consecutive, true
 }
 
 // processManga загружает страницу манги, обновляет данные в БД
@@ -121,9 +205,10 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 			return nil
 		}
 		// Неизвестная разметка/заглушка: сохраняем тело для разбора,
-		// чтобы диагностировать причину.
+		// чтобы диагностировать причину, и сигнализируем специальным
+		// типом ошибки — она учитывается автоотключением источника.
 		c.badPages.dump(src.source, urlPart, body, err)
-		return fmt.Errorf("ошибка парсинга страницы: %w", err)
+		return &cardParseError{err: err}
 	}
 
 	// Догрузка глав для драйверов, где список глав не в HTML карточки

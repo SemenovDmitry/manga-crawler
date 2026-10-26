@@ -9,3 +9,7 @@ probe:
 
 crawler-start:
 	go run ./cmd/crawler/main.go
+
+schema-dump:
+	go run ./cmd/schemadump
+	@echo Схема сохранена в docs/schema.sql

@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/crawler/parsers"
@@ -24,24 +26,43 @@ type Crawler struct {
 	fetch    *Fetcher
 	pace     pacer
 	notify   Notifier
+	services ServiceNotifier // сервисные сообщения хозяину (автоотключение)
 	badPages badPageDumper
 	sitemap  urlLister // перечисление URL через sitemap источника
 	catalog  urlLister // перечисление URL через пагинацию каталога
 	gate     pauseGate // пауза фонового полного обхода на время инкрементального
 	full     fullCrawlTracker
+
+	// cardFailures — текущая серия ошибок парсинга карточек по источникам
+	// (под failMu). Успешная карточка сбрасывает серию; порог
+	// (Config.CardFailureLimit) отключает источник (processor.go).
+	failMu       sync.Mutex
+	cardFailures map[int]int
 }
 
 func New(store repo, cfg Config) *Crawler {
 	fetch := NewFetcher()
 	pace := pacer{delay: cfg.RequestDelay}
-	c := &Crawler{
-		store:    store,
-		cfg:      cfg,
-		fetch:    fetch,
-		pace:     pace,
-		notify:   NewQueueNotifier(store),
-		badPages: badPageDumper{dir: cfg.BadPagesDir},
+
+	var ownerChatID int64
+	if cfg.OwnerChatID != "" {
+		if id, err := strconv.ParseInt(cfg.OwnerChatID, 10, 64); err == nil {
+			ownerChatID = id
+		} else {
+			log.Printf("Некорректный OwnerChatID %q: %v — сервисные сообщения отправляться не будут", cfg.OwnerChatID, err)
+		}
 	}
+
+	c := &Crawler{
+		store:        store,
+		cfg:          cfg,
+		fetch:        fetch,
+		pace:         pace,
+		notify:       NewQueueNotifier(store, ownerChatID),
+		badPages:     badPageDumper{dir: cfg.BadPagesDir},
+		cardFailures: make(map[int]int),
+	}
+	c.services, _ = c.notify.(ServiceNotifier)
 	c.sitemap = newSitemapLister(fetch, &c.gate)
 	c.catalog = newCatalogLister(fetch, pace, &c.gate)
 	return c
@@ -212,10 +233,9 @@ func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) 
 	var err error
 	if full {
 		err = c.crawlSourceFull(ctx, *src)
-		// Отмечаем только при успешном завершении (ошибки отдельных страниц
-		// не считаются: crawlSourceFull возвращает ошибку лишь при недоступном
-		// sitemap или отмене контекста); пропуски доберёт инкрементальный проход.
-		if err == nil {
+		// Автоотключение прерывает полный обход: источник больше не включён,
+		// расписание не отмечаем — при повторном включении обход начнётся заново.
+		if err == nil && src.source.Enabled {
 			next, markErr := c.store.MarkSourceFullCrawled(src.source.ID)
 			if markErr != nil {
 				log.Printf("[%s] Ошибка отметки полного обхода: %v", src.source.Name, markErr)
@@ -235,7 +255,13 @@ func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) 
 	}
 
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-		log.Printf("[%s] Ошибка обхода: %v", src.source.Name, err)
+		var disabledErr errSourceDisabled
+		if errors.As(err, &disabledErr) {
+			// Источник отключён автоматически: уже уведомлены, не сбой.
+			log.Printf("[%s] %s", src.source.Name, err)
+		} else {
+			log.Printf("[%s] Ошибка обхода: %v", src.source.Name, err)
+		}
 	}
 
 	log.Printf("[%s] %s проход завершён", src.source.Name, passType)

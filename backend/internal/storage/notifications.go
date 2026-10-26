@@ -11,7 +11,7 @@ import (
 type Notification struct {
 	ID        int64
 	ChatID    int64
-	MangaID   int64
+	MangaID   sql.NullInt64 // NULL — сервисное сообщение (не про мангу)
 	Text      string
 	SentAt    sql.NullTime
 	CreatedAt sql.NullTime
@@ -23,6 +23,18 @@ func (s *Store) EnqueueNotification(chatID, mangaID int64, text string) error {
 
 	if _, err := s.db.Exec(query, chatID, mangaID, text); err != nil {
 		return fmt.Errorf("ошибка добавления уведомления в очередь: %w", err)
+	}
+
+	return nil
+}
+
+// EnqueueServiceNotification добавляет сервисное сообщение (не привязанное
+// к манге) в очередь рассылки.
+func (s *Store) EnqueueServiceNotification(chatID int64, text string) error {
+	const query = `INSERT INTO notifications (chat_id, manga_id, text) VALUES ($1, NULL, $2)`
+
+	if _, err := s.db.Exec(query, chatID, text); err != nil {
+		return fmt.Errorf("ошибка добавления сервисного уведомления в очередь: %w", err)
 	}
 
 	return nil
