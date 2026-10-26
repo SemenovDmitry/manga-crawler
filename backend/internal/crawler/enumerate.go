@@ -69,7 +69,10 @@ func (l sitemapLister) list(ctx context.Context, src crawlTarget, _ int) ([]stri
 
 	body, err := l.fetch.Page(ctx, baseURL+"/sitemap.xml")
 	if err != nil {
-		return nil, fmt.Errorf("sitemap.xml недоступен: %w", err)
+		// Без /sitemap.xml пробуем карты из robots.txt (mangalib:
+		// /sitemap.xml — SPA-заглушка, а карты перечислены в robots.txt).
+		log.Printf("[%s] sitemap.xml недоступен (%v), пробую карты из robots.txt", src.source.Name, err)
+		return l.urlsFromRobots(ctx, src, baseURL)
 	}
 
 	var locations []string
@@ -93,8 +96,11 @@ func (l sitemapLister) list(ctx context.Context, src crawlTarget, _ int) ([]stri
 		}
 	} else {
 		var set sitemapURLSet
-		if err := xml.Unmarshal(body, &set); err != nil {
-			return nil, fmt.Errorf("sitemap.xml не является ни индексом, ни картой: %w", err)
+		if uErr := xml.Unmarshal(body, &set); uErr != nil {
+			// Ни индекс, ни карта: возможно, /sitemap.xml — заглушка SPA,
+			// а карты перечислены в robots.txt (mangalib).
+			log.Printf("[%s] sitemap.xml не распознан (%v), пробую карты из robots.txt", src.source.Name, uErr)
+			return l.urlsFromRobots(ctx, src, baseURL)
 		}
 		for _, entry := range set.URLs {
 			locations = append(locations, entry.Loc)
@@ -129,6 +135,49 @@ func (l sitemapLister) urlsFromSitemap(ctx context.Context, src crawlTarget, sit
 	}
 
 	return locs, nil
+}
+
+// urlsFromRobots достаёт адреса карт сайта из robots.txt (директивы
+// Sitemap:) и собирает URL карточек из каждой карты. Одна битая карта
+// не отменяет обход: недостающее доберут следующие проходы.
+func (l sitemapLister) urlsFromRobots(ctx context.Context, src crawlTarget, baseURL string) ([]string, error) {
+	body, err := l.fetch.Page(ctx, baseURL+"/robots.txt")
+	if err != nil {
+		return nil, fmt.Errorf("robots.txt недоступен: %w", err)
+	}
+
+	var sitemapURLs []string
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "Sitemap:"); ok {
+			sitemapURLs = append(sitemapURLs, strings.TrimSpace(rest))
+		}
+	}
+	if len(sitemapURLs) == 0 {
+		return nil, fmt.Errorf("в robots.txt нет директив Sitemap")
+	}
+	log.Printf("[%s] В robots.txt указано карт сайта: %d", src.source.Name, len(sitemapURLs))
+
+	var mangaURLs []string
+	for _, sitemapURL := range sitemapURLs {
+		if ctx.Err() != nil {
+			return mangaURLs, ctx.Err()
+		}
+		if err := l.gate.yield(ctx); err != nil {
+			return mangaURLs, err
+		}
+		locs, err := l.urlsFromSitemap(ctx, src, sitemapURL)
+		if err != nil {
+			continue // одна битая под-карта не отменяет обход
+		}
+		for _, loc := range locs {
+			if src.driver.IsMangaURL(loc) {
+				mangaURLs = append(mangaURLs, loc)
+			}
+		}
+	}
+
+	return mangaURLs, nil
 }
 
 // ——— перечисление по каталогу ———

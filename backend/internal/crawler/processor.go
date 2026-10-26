@@ -95,7 +95,14 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 		return err
 	}
 
-	body, err := c.fetch.Card(ctx, rawURL)
+	// Драйвер может требовать свой User-Agent для карточек: источники,
+	// отдающие полный SSR только известным роботам (mangalib).
+	var uaOverride []string
+	if ua, ok := src.driver.(parsers.CardUserAgent); ok {
+		uaOverride = []string{ua.CardUserAgent()}
+	}
+
+	body, err := c.fetch.Card(ctx, rawURL, uaOverride...)
 	if err != nil {
 		// Тайтл переехал на зеркало: редирект не переходим, карточка
 		// пропускается — она уже учтена по новому адресу, если тот
@@ -117,6 +124,16 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 		// чтобы диагностировать причину.
 		c.badPages.dump(src.source, urlPart, body, err)
 		return fmt.Errorf("ошибка парсинга страницы: %w", err)
+	}
+
+	// Догрузка глав для драйверов, где список глав не в HTML карточки
+	// (remanga): ошибка догрузки не отменяет карточку — название и статус
+	// уже распарсены, главы доберутся при следующем обновлении.
+	if loader, ok := src.driver.(parsers.ChapterLoader); ok {
+		load := c.pacedPageLoader()
+		if err := loader.LoadChapters(ctx, load, urlPart, card); err != nil {
+			log.Printf("[%s] Догрузка глав %s не удалась: %v", src.source.Name, urlPart, err)
+		}
 	}
 
 	chapters := parsers.NormalizeChapters(card.Chapters)
