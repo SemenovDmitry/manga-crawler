@@ -7,7 +7,7 @@ import (
 )
 
 type Config struct {
-	Interval          time.Duration // пауза между проходами (по умолчанию 30 минут)
+	Interval          time.Duration // пауза между проходами (по умолчанию 20 минут)
 	RequestDelay      time.Duration // пауза между запросами к сайту (вежливость)
 	MangaRefreshLimit int           // сколько подписанных манг обновлять за инкрементальный проход
 	SkipInitialFull   bool          // не выполнять полный обход даже когда подошло расписание
@@ -27,7 +27,7 @@ type Config struct {
 
 func ConfigFromEnv() Config {
 	return Config{
-		Interval:          env.Duration("CRAWL_INTERVAL", 30*time.Minute),
+		Interval:          env.Duration("CRAWL_INTERVAL", 20*time.Minute),
 		RequestDelay:      env.Duration("CRAWL_REQUEST_DELAY", time.Second),
 		MangaRefreshLimit: env.Int("CRAWL_MANGA_REFRESH_LIMIT", 200),
 		SkipInitialFull:   env.Bool("CRAWL_SKIP_FULL", false),
