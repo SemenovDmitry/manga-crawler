@@ -38,6 +38,12 @@ probe-output/
 # .vscode/
 
 
+# /frontend
+.pnpm-store/
+.npm-cache/
+.tmp-build/
+
+# /backend
 .gocache/
 .gomodcache/
 .gopath/
