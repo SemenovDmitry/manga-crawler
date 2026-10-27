@@ -30,7 +30,9 @@ type processResult struct {
 // (см. Crawler.noteCardParseError).
 type cardParseError struct{ err error }
 
-func (e *cardParseError) Error() string { return "ошибка парсинга карточки: " + e.err.Error() }
+func (e *cardParseError) Error() string {
+	return "ошибка парсинга карточки: " + e.err.Error()
+}
 func (e *cardParseError) Unwrap() error { return e.err }
 
 func isCardParseError(err error) bool {
@@ -235,9 +237,12 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 		return err
 	}
 
-	// Новые главы ищем только у уже известных манг (первичная загрузка без уведомлений)
+	// Новые главы ищем только у уже известных манг (первичная загрузка без уведомлений).
+	// FindNewChaptersSince отсекает старую историю, впервые попавшую в список
+	// драйвера (догрузка глав в mgeko): после перехода с 50 карточных глав на
+	// полный список подписчикам не уйдут десятки «новых» глав давних месяцев.
 	if found {
-		newChapters := parsers.FindNewChapters(chapters, state.ChaptersCount)
+		newChapters := parsers.FindNewChaptersSince(chapters, state.LatestChapter, state.ChaptersCount)
 		if len(newChapters) > 0 {
 			c.notify.NewChapters(mangaID, rawURL, card.Title, newChapters)
 		}

@@ -59,6 +59,34 @@ func FindNewChapters(chapters []Chapter, knownCount int) []Chapter {
 	return chapters[len(chapters)-newCount:]
 }
 
+// FindNewChaptersSince — главы для уведомления подписчикам: список вырос,
+// но не всякое увеличение списка — новая глава. Драйвер может впервые
+// догрузить старую историю (mgeko: карточка отдаёт 50 последних глав,
+// полный список живёт на отдельной странице) — тогда счётчик прыгнет
+// на десятки глав, которых подписчикам уведомлять нельзя.
+//
+// Если последний известный номер (latestNumber) — число, «новыми»
+// считаются только главы с номером строго больше него; счётчик в этом
+// сценарии не нужен: после догрузки истории он уже не отражает число
+// реально увиденных глав. Нечисловой последний номер сравнить не с чем —
+// работает старое поведение по счётчику.
+func FindNewChaptersSince(chapters []Chapter, latestNumber string, knownCount int) []Chapter {
+	latest, err := parseChapterNumber(latestNumber)
+	if err != nil {
+		return FindNewChapters(chapters, knownCount)
+	}
+
+	newChapters := make([]Chapter, 0, len(chapters))
+	for _, ch := range chapters {
+		number, err := parseChapterNumber(ch.Number)
+		if err != nil || number > latest {
+			newChapters = append(newChapters, ch)
+		}
+	}
+
+	return newChapters
+}
+
 // parseChapterNumber разбирает номер главы ("12", "14.5") в число.
 func parseChapterNumber(number string) (float64, error) {
 	var value float64
