@@ -1,0 +1,64 @@
+{
+  "app": {
+    "title": "Manga Crawler — админка"
+  },
+  "nav": {
+    "manga": "Манга",
+    "sources": "Источники",
+    "chatUsers": "Пользователи чатов",
+    "logout": "Выйти"
+  },
+  "login": {
+    "title": "Вход в админку",
+    "username": "Логин",
+    "password": "Пароль",
+    "submit": "Войти",
+    "submitting": "Входим…",
+    "invalidCredentials": "Неверный логин или пароль"
+  },
+  "errors": {
+    "unauthorized": "Сессия истекла — войдите заново",
+    "forbidden": "Доступ запрещён",
+    "notFound": "Не найдено",
+    "conflict": "Запись уже существует",
+    "server": "Ошибка сервера, попробуйте позже",
+    "network": "Нет связи с сервером",
+    "unknown": "Неизвестная ошибка"
+  },
+  "common": {
+    "loading": "Загрузка…",
+    "retry": "Повторить",
+    "cancel": "Отмена",
+    "save": "Сохранить",
+    "delete": "Удалить",
+    "edit": "Изменить",
+    "confirm": "Подтвердить",
+    "language": "Язык",
+    "back": "На главную"
+  },
+  "placeholder": {
+    "inProgress": "Страница появится на этапе {{stage}}"
+  },
+  "sources": {
+    "name": "Название",
+    "engine": "Движок",
+    "baseUrl": "Адрес",
+    "lastFullCrawl": "Последний полный обход",
+    "enabled": "Включён",
+    "actions": "Действия",
+    "never": "никогда",
+    "recrawl": "Полный обход",
+    "recrawlTitle": "Пересоздать полный обход «{{name}}»?",
+    "recrawlDescription": "Источник будет полностью обойдён при следующем проходе краулера — независимо от расписания.",
+    "recrawlDone": "Полный обход пересоздан"
+  },
+  "chatUsers": {
+    "username": "Имя пользователя",
+    "chatId": "Chat ID",
+    "createdAt": "Создан",
+    "active": "Активен",
+    "blocked": "Блокировка",
+    "yes": "да",
+    "no": "нет"
+  }
+}
