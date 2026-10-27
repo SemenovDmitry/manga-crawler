@@ -4,17 +4,19 @@ import { useTranslation } from "react-i18next"
 
 import { ApiError, api, unwrap } from "@/api/client"
 import { queryClient } from "@/api/queryClient"
-import { resetRefreshQueue } from "@/api/refresh"
+import { refreshSession, resetRefreshQueue } from "@/api/refresh"
 import { Button } from "@/components/ui/Button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card"
 import { Input } from "@/components/ui/Input"
 
-// Если пользователь уже аутентифицирован — на /manga. Проверка лёгкая:
-// пробуем защищённый запрос; 401 значит «не залогинен».
 export const Route = createFileRoute("/login")({
   beforeLoad: async () => {
-    const { error } = await api.GET("/sources")
-    if (!error) {
+    // Проба сессии через refresh-ручку, а не GET /sources: 401 от защищённой
+    // ручки auth-middleware превращает в emitUnauthorized (тост «сессия
+    // истекла» + редирект), и на /login возникает цикл: гард -> 401 -> тост ->
+    // navigate -> гард. Refresh успешен только при живой refresh-cookie —
+    // ровно тогда, когда логин не нужен.
+    if (await refreshSession()) {
       throw redirect({ to: "/manga" })
     }
   },

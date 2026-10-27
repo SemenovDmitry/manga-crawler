@@ -4,13 +4,14 @@ import { useTranslation } from "react-i18next"
 import { api } from "@/api/client"
 import { queryClient } from "@/api/queryClient"
 import { resetRefreshQueue } from "@/api/refresh"
+import { LocaleSwitch } from "@/components/LocaleSwitch"
 import { Button } from "@/components/ui/Button"
-import { changeLocale, type Locale, locales } from "@/i18n"
 
-// Аутент-гард: защищённые страницы рендерятся только после успешного
-// пробного запроса. 401 -> редирект на /login (cookie ставит бэкенд).
 export const Route = createFileRoute("/_auth")({
   beforeLoad: async () => {
+    // Проверка сессии при входе на защищённые страницы; её 401 при мёртвой
+    // сессии middleware также превращает в тост + редирект — здесь редирект
+    // просто дублирует его на случай прямого захода по URL.
     const { error } = await api.GET("/sources")
     if (error) {
       throw redirect({ to: "/login" })
@@ -24,15 +25,16 @@ function AuthLayout() {
   const navigate = useNavigate()
 
   async function onLogout() {
-    // Сначала сбрасываем состояние сессии на клиенте: очередь refresh и кеш
-    // данных (после перелогина всё должно загрузиться заново). Сам logout
-    // идёт с действующей access-cookie; при её истечении получим 401 —
-    // refresh уже погашен (refresh-cookie отозвана бэкендом), редирект на
-    // логин произойдёт и так.
+    // Сбрасываем очередь refresh, затем гасим сессию на бэкенде и только
+    // после перехода чистим кеш запросов: clear() при смонтированных
+    // обсерверах рождает волну рефетчей, которые после logout дают 401 и
+    // шторм тостов «сессия истекла». На /login наблюдателей нет — очистка
+    // тихая. Сбой logout не мешаем показывать: без cookie защищённые
+    // страницы всё равно не открыть.
     resetRefreshQueue()
+    await api.POST("/auth/logout").catch(() => undefined)
+    await navigate({ to: "/login", replace: true })
     queryClient.clear()
-    await api.POST("/auth/logout")
-    await navigate({ to: "/login" })
   }
 
   return (
@@ -60,8 +62,6 @@ function AuthLayout() {
 }
 
 function AppLink(props: { to: "/manga" | "/sources" | "/chat-users"; children: React.ReactNode }) {
-  // TanStack Link: типизированный to из routeTree, полноценная SPA-навигация,
-  // активный маршрут — подсветка через activeProps.
   return (
     <Link
       to={props.to}
@@ -70,25 +70,5 @@ function AppLink(props: { to: "/manga" | "/sources" | "/chat-users"; children: R
     >
       {props.children}
     </Link>
-  )
-}
-
-function LocaleSwitch() {
-  const { t } = useTranslation()
-  return (
-    <label className="flex items-center gap-1 text-xs text-muted-foreground">
-      <span>{t("common.language")}</span>
-      <select
-        className="rounded-md border border-input bg-transparent px-1.5 py-1 text-xs"
-        defaultValue={localStorage.getItem("admin-locale") ?? "ru"}
-        onChange={(e) => changeLocale(e.target.value as Locale)}
-      >
-        {locales.map((l) => (
-          <option key={l} value={l}>
-            {l.toUpperCase()}
-          </option>
-        ))}
-      </select>
-    </label>
   )
 }

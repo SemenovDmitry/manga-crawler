@@ -21,8 +21,8 @@ import {
 } from "@/components/ui/Table"
 import { formatDateTime } from "@/lib/format"
 import { showToast } from "@/lib/toastStore"
-import { useResetSourceFullCrawl, useSetSourceEnabled, useSources } from "./queries"
 import type { ISource } from "@/types/models"
+import { useResetSourceFullCrawl, useSetSourceEnabled, useSources } from "./queries"
 
 export function Sources() {
   const { t } = useTranslation()
@@ -39,8 +39,6 @@ export function Sources() {
     </div>
   )
 }
-
-
 
 function SourcesTable({ sources }: { sources: ISource[] }) {
   const { t } = useTranslation()

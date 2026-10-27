@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next"
 import { onUnauthorized } from "@/api/authEvents"
 import { Toaster } from "@/components/Toaster"
 import { showToast } from "@/lib/toastStore"
+import { router } from "@/router"
 export interface RouterContext {
   queryClient: QueryClient
 }
@@ -21,12 +22,16 @@ function RootLayout() {
 
   // Refresh не удался -> тост и редирект на логин. Подписка один раз на всё
   // приложение; чистка кеша гарантирует, что после перелогина данные
-  // перезагрузятся, а не возьмутся из стейла.
+  // перезагрузятся, а не возьмутся из стейла. Гвард уже на /login — редирект
+  // не нужен (иначе navigate на тот же href перезапустит его гард: 401 ->
+  // тост -> navigate -> гард...).
   useEffect(
     () =>
       onUnauthorized(() => {
         showToast("error", t("errors.unauthorized"))
-        void navigate({ to: "/login" })
+        if (router.state.location.pathname !== "/login") {
+          void navigate({ to: "/login" })
+        }
       }),
     [navigate, t],
   )

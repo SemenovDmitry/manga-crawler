@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type ApiError, api, unwrap } from "@/api/client"
 import { useApiToast } from "@/hooks/useApiToast"
-import type { ISource  } from "@/types/models"
+import type { ISource } from "@/types/models"
 
 const sourcesKey = ["sources"] as const
 
