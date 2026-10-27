@@ -152,6 +152,7 @@ func (c *Crawler) runStartupPasses(ctx context.Context, srcs []crawlTarget) {
 // между двумя запросами к сайту), поэтому свежие главы не ждут его
 // окончания. Полные обходы по расписанию запускаются в фоне, по одному.
 func (c *Crawler) runIncrementalPars(ctx context.Context) {
+	passStart := time.Now()
 	log.Println("=== Начало инкрементального прохода ===")
 
 	sources, err := c.crawlTargets()
@@ -180,6 +181,14 @@ func (c *Crawler) runIncrementalPars(ctx context.Context) {
 	// resume идемпотентен и будит приостановленный полный обход после прохода.
 	defer c.gate.resume()
 
+	// Тайминги обхода каждого источника — в итоговой строке прохода.
+	type sourceTiming struct {
+		name string
+		took time.Duration
+		err  bool
+	}
+	var timings []sourceTiming
+
 	var dueFull []crawlTarget
 	for i := range sources {
 		if ctx.Err() != nil {
@@ -198,11 +207,26 @@ func (c *Crawler) runIncrementalPars(ctx context.Context) {
 		// Инкрементальная проверка выполняется для всех источников, включая
 		// тот, чей полный обход стоит на паузе: запросы всё равно идут
 		// строго по одному — из этого потока.
-		c.crawlSource(ctx, src, false)
+		sourceStart := time.Now()
+		err := c.crawlSource(ctx, src, false)
+		timings = append(timings, sourceTiming{
+			name: src.source.Name,
+			took: time.Since(sourceStart),
+			err:  err != nil,
+		})
+	}
+
+	for _, t := range timings {
+		status := ""
+		if t.err {
+			status = " (со сбоем)"
+		}
+		log.Printf("Обход {%s}: %s%s", t.name, t.took.Truncate(time.Millisecond), status)
 	}
 
 	c.logDatabaseStats()
-	log.Println("=== Инкрементальный проход завершён ===")
+	log.Printf("=== Инкрементальный проход завершён за %s (источников: %d) ===",
+		time.Since(passStart).Truncate(time.Millisecond), len(sources))
 
 	if len(dueFull) > 0 {
 		c.startFullCrawl(ctx, dueFull[0])
@@ -223,7 +247,11 @@ func (c *Crawler) startFullCrawl(ctx context.Context, src crawlTarget) {
 	}()
 }
 
-func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) {
+// crawlSource выполняет один обход источника (full — полный, иначе
+// инкрементальный) и возвращает ошибку прохода: она уже залогирована,
+// вызывающему нужна для сводной статистики таймингов.
+func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) error {
+	started := time.Now()
 	passType := "инкрементального"
 	if full {
 		passType = "полного"
@@ -264,7 +292,13 @@ func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) 
 		}
 	}
 
-	log.Printf("[%s] %s проход завершён", src.source.Name, passType)
+	log.Printf("[%s] %s проход завершён за %s",
+		src.source.Name,
+		passType,
+		time.Since(started).Truncate(time.Millisecond),
+	)
+
+	return err
 }
 
 // pacedPageLoader возвращает функцию загрузки страниц для догрузки данных
