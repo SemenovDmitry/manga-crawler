@@ -3,7 +3,6 @@ package adminapi
 import (
 	"log"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -66,13 +65,11 @@ func bindErrorHandler(c *gin.Context, err error, statusCode int) {
 }
 
 func (s *Server) requireAuth() gin.HandlerFunc {
-	const prefix = "Bearer "
-
 	return func(c *gin.Context) {
-		header := c.GetHeader("Authorization")
-		token, ok := strings.CutPrefix(header, prefix)
-		if !ok || token == "" {
-			abortUnauthorized(c, "требуется заголовок Authorization: Bearer <token>")
+		// Access-токен приходит в HttpOnly-cookie admin_access.
+		token, err := c.Cookie(cookieAccess)
+		if err != nil || token == "" {
+			abortUnauthorized(c, "требуется cookie "+cookieAccess+" — выполните POST /auth/login")
 			return
 		}
 
@@ -86,8 +83,8 @@ func (s *Server) requireAuth() gin.HandlerFunc {
 }
 
 func abortUnauthorized(c *gin.Context, msg string) {
-	// WWW-Authenticate по RFC 6750 — фронтенд отличает 401 авторизации от прочих.
-	c.Header("WWW-Authenticate", `Bearer realm="admin-api"`)
+	// WWW-Authenticate с cookie-схемой подсказывает клиенту способ авторизации.
+	c.Header("WWW-Authenticate", `Cookie realm="admin-api"`)
 	c.AbortWithStatusJSON(http.StatusUnauthorized, oapi.Error{Error: msg})
 }
 

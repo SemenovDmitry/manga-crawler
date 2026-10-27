@@ -16,6 +16,7 @@ var storeErrorStatus = map[error]int{
 	storage.ErrSourceNotFound:   http.StatusNotFound,
 	storage.ErrMangaNotFound:    http.StatusNotFound,
 	storage.ErrChatUserNotFound: http.StatusNotFound,
+	storage.ErrMangaDuplicate:   http.StatusConflict,
 }
 
 func respondStoreError(c *gin.Context, err error, statusOverride ...int) {

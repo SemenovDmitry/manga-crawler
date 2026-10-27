@@ -23,11 +23,17 @@ func (s *Server) ListManga(c *gin.Context, params oapi.ListMangaParams) {
 		return
 	}
 
+	total, err := s.store.CountManga(filter)
+	if err != nil {
+		abortInternal(c, err)
+		return
+	}
+
 	out := make([]oapi.Manga, 0, len(mangaList))
 	for _, m := range mangaList {
 		out = append(out, toMangaResponse(m))
 	}
-	c.JSON(http.StatusOK, oapi.MangaList{Manga: out})
+	c.JSON(http.StatusOK, oapi.MangaList{Manga: out, Total: total})
 }
 
 func parseMangaFilter(p oapi.ListMangaParams) (storage.MangaFilter, error) {
@@ -104,6 +110,11 @@ func (s *Server) CreateManga(c *gin.Context) {
 		PublicationStatus: createStatus,
 	})
 	if err != nil {
+		// Дубликат — конфликт с существующей записью (UNIQUE parse_source_id+url).
+		if errors.Is(err, storage.ErrMangaDuplicate) {
+			c.JSON(http.StatusConflict, oapi.Error{Error: err.Error()})
+			return
+		}
 		respondStoreError(c, err, http.StatusBadRequest)
 		return
 	}

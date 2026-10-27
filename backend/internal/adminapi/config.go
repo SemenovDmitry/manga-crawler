@@ -22,6 +22,9 @@ type Config struct {
 	TokenTTL time.Duration
 	// RefreshTTL — срок жизни refresh-токена (по умолчанию 7 дней).
 	RefreshTTL time.Duration
+	// CookieSecure — флаг Secure у auth-cookie. Включать только за TLS:
+	// по HTTP браузер cookie с Secure не сохранит и не отправит.
+	CookieSecure bool
 }
 
 func ConfigFromEnv() Config {
@@ -32,6 +35,7 @@ func ConfigFromEnv() Config {
 		JWTSecret:    []byte(env.String("JWT_SECRET", "")),
 		TokenTTL:     env.Duration("ADMIN_TOKEN_TTL", 15*time.Minute),
 		RefreshTTL:   env.Duration("ADMIN_REFRESH_TTL", 7*24*time.Hour),
+		CookieSecure: env.Bool("ADMIN_COOKIE_SECURE", false),
 	}
 }
 
