@@ -379,10 +379,10 @@ func (s *Store) GetStaleSubscribedManga(sourceID, staleSeconds, limit int) ([]Ma
 
 	query := `SELECT ` + mangaColumns + `
 		` + mangaFrom + `
-		JOIN subscriptions sub ON sub.manga_id = m.id
 		WHERE m.parse_source_id = $1
 		  AND (m.last_check_at IS NULL OR m.last_check_at < now() - make_interval(secs => $2::float8))
 		  AND NOT (m.publication_status = ANY($3::text[]))
+		  AND EXISTS (SELECT 1 FROM subscriptions sub WHERE sub.manga_id = m.id)
 		LIMIT $4`
 
 	rows, err := s.db.Query(query, sourceID, staleSeconds, excluded, limit)
