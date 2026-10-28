@@ -7,7 +7,7 @@ import (
 
 const (
 	dispatchBatchLimit   = 20
-	dispatchPollInterval = 30 * time.Second
+	dispatchPollInterval = 20 * time.Second
 	dispatchRetryDelay   = 10 * time.Second
 )
 

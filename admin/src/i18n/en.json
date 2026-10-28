@@ -1,0 +1,113 @@
+{
+  "app": {
+    "title": "Manga Crawler — Admin"
+  },
+  "nav": {
+    "manga": "Manga",
+    "sources": "Sources",
+    "chatUsers": "Chat users",
+    "logout": "Log out"
+  },
+  "login": {
+    "title": "Admin sign in",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "invalidCredentials": "Invalid username or password"
+  },
+  "errors": {
+    "unauthorized": "Session expired — please sign in again",
+    "forbidden": "Access denied",
+    "notFound": "Not found",
+    "conflict": "Record already exists",
+    "server": "Server error, try again later",
+    "network": "Cannot reach the server",
+    "unknown": "Unknown error"
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "edit": "Edit",
+    "confirm": "Confirm",
+    "language": "Language",
+    "back": "Back home"
+  },
+  "placeholder": {
+    "inProgress": "This page will arrive at stage {{stage}}"
+  },
+  "sources": {
+    "name": "Name",
+    "engine": "Engine",
+    "baseUrl": "URL",
+    "lastFullCrawl": "Last full crawl",
+    "enabled": "Enabled",
+    "actions": "Actions",
+    "never": "never",
+    "recrawl": "Full crawl",
+    "recrawlTitle": "Reset full crawl for \"{{name}}\"?",
+    "recrawlDescription": "The source will be fully crawled on the next crawler pass, regardless of schedule.",
+    "recrawlDone": "Full crawl reset"
+  },
+  "chatUsers": {
+    "username": "Username",
+    "chatId": "Chat ID",
+    "createdAt": "Created",
+    "active": "Active",
+    "blocked": "Blocked",
+    "yes": "yes",
+    "no": "no"
+  },
+  "manga": {
+    "title": "Manga catalog",
+    "newTitle": "New manga",
+    "editTitle": "Edit manga",
+    "searchPlaceholder": "Search by title…",
+    "allSources": "All sources",
+    "allStatuses": "All statuses",
+    "source": "Source",
+    "altTitles": "Alt. titles",
+    "latestChapter": "Latest chapter",
+    "chaptersCount": "Chapters",
+    "statusLabel": "Status",
+    "lastCheck": "Last check",
+    "updatedAt": "Updated",
+    "pageOf": "Page {{page}} of {{pages}}",
+    "prev": "Prev",
+    "next": "Next",
+    "empty": "Nothing found",
+    "create": "Add",
+    "deleteTitle": "Delete \"{{title}}\"?",
+    "deleteDescription": "The record will be deleted permanently.",
+    "deleted": "Manga deleted",
+    "saved": "Changes saved",
+    "created": "Manga added",
+    "back": "Back",
+    "form": {
+      "sourceId": "Source",
+      "url": "URL",
+      "title": "Title",
+      "altTitles": "Alternative titles",
+      "latestChapter": "Latest chapter",
+      "chaptersCount": "Chapters count",
+      "publicationStatus": "Publication status",
+      "selectSource": "Select a source…",
+      "statusNotSet": "not set",
+      "requiredField": "Required field",
+      "invalidNumber": "Enter a non-negative number",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
+    },
+    "status": {
+      "ongoing": "Ongoing",
+      "completed": "Completed",
+      "hiatus": "On hiatus",
+      "cancelled": "Cancelled",
+      "discontinued": "Discontinued"
+    }
+  }
+}

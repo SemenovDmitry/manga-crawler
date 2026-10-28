@@ -1,0 +1,113 @@
+{
+  "app": {
+    "title": "Manga Crawler — админка"
+  },
+  "nav": {
+    "manga": "Манга",
+    "sources": "Источники",
+    "chatUsers": "Пользователи чатов",
+    "logout": "Выйти"
+  },
+  "login": {
+    "title": "Вход в админку",
+    "username": "Логин",
+    "password": "Пароль",
+    "submit": "Войти",
+    "submitting": "Входим…",
+    "invalidCredentials": "Неверный логин или пароль"
+  },
+  "errors": {
+    "unauthorized": "Сессия истекла — войдите заново",
+    "forbidden": "Доступ запрещён",
+    "notFound": "Не найдено",
+    "conflict": "Запись уже существует",
+    "server": "Ошибка сервера, попробуйте позже",
+    "network": "Нет связи с сервером",
+    "unknown": "Неизвестная ошибка"
+  },
+  "common": {
+    "loading": "Загрузка…",
+    "retry": "Повторить",
+    "cancel": "Отмена",
+    "save": "Сохранить",
+    "delete": "Удалить",
+    "edit": "Изменить",
+    "confirm": "Подтвердить",
+    "language": "Язык",
+    "back": "На главную"
+  },
+  "placeholder": {
+    "inProgress": "Страница появится на этапе {{stage}}"
+  },
+  "sources": {
+    "name": "Название",
+    "engine": "Движок",
+    "baseUrl": "Адрес",
+    "lastFullCrawl": "Последний полный обход",
+    "enabled": "Включён",
+    "actions": "Действия",
+    "never": "никогда",
+    "recrawl": "Полный обход",
+    "recrawlTitle": "Пересоздать полный обход «{{name}}»?",
+    "recrawlDescription": "Источник будет полностью обойдён при следующем проходе краулера — независимо от расписания.",
+    "recrawlDone": "Полный обход пересоздан"
+  },
+  "chatUsers": {
+    "username": "Имя пользователя",
+    "chatId": "Chat ID",
+    "createdAt": "Создан",
+    "active": "Активен",
+    "blocked": "Блокировка",
+    "yes": "да",
+    "no": "нет"
+  },
+  "manga": {
+    "title": "Каталог манги",
+    "newTitle": "Новая манга",
+    "editTitle": "Редактирование манги",
+    "searchPlaceholder": "Поиск по названию…",
+    "allSources": "Все источники",
+    "allStatuses": "Все статусы",
+    "source": "Источник",
+    "altTitles": "Альт. названия",
+    "latestChapter": "Последняя глава",
+    "chaptersCount": "Глав",
+    "statusLabel": "Статус",
+    "lastCheck": "Последняя проверка",
+    "updatedAt": "Обновлена",
+    "pageOf": "Стр. {{page}} из {{pages}}",
+    "prev": "Пред.",
+    "next": "След.",
+    "empty": "Ничего не найдено",
+    "create": "Добавить",
+    "deleteTitle": "Удалить «{{title}}»?",
+    "deleteDescription": "Запись будет удалена безвозвратно.",
+    "deleted": "Манга удалена",
+    "saved": "Изменения сохранены",
+    "created": "Манга добавлена",
+    "back": "Назад",
+    "form": {
+      "sourceId": "Источник",
+      "url": "URL",
+      "title": "Название",
+      "altTitles": "Альтернативные названия",
+      "latestChapter": "Последняя глава",
+      "chaptersCount": "Количество глав",
+      "publicationStatus": "Статус публикации",
+      "selectSource": "Выберите источник…",
+      "statusNotSet": "не задан",
+      "requiredField": "Обязательное поле",
+      "invalidNumber": "Введите неотрицательное число",
+      "save": "Сохранить",
+      "saving": "Сохранение…",
+      "cancel": "Отмена"
+    },
+    "status": {
+      "ongoing": "Выходит",
+      "completed": "Завершена",
+      "hiatus": "Перерыв",
+      "cancelled": "Отменена",
+      "discontinued": "Прекращена"
+    }
+  }
+}

@@ -18,6 +18,9 @@ type mangaRepo interface {
 	) (int64, error)
 	SubscriberChatIDs(mangaID int64) ([]int64, error)
 	EnqueueNotification(chatID, mangaID int64, text string) error
+	// EnqueueServiceNotification — сервисное сообщение хозяину
+	// (не привязано к манге, manga_id = NULL).
+	EnqueueServiceNotification(chatID int64, text string) error
 }
 
 // passRepo — операции с БД для проходов по источникам (crawler.go).
@@ -30,6 +33,9 @@ type passRepo interface {
 	// MarkSourceFullCrawled фиксирует завершённый полный обход и возвращает
 	// назначенное время следующего.
 	MarkSourceFullCrawled(id int) (sql.NullTime, error)
+	// SetSourceEnabled включает/отключает источник (автоотключение при
+	// серии ошибок парсинга, processor.go).
+	SetSourceEnabled(id int, enabled bool) (storage.Source, error)
 	// GetMangaCountBySource — статистика для логов.
 	GetMangaCountBySource() (map[string]int, error)
 }

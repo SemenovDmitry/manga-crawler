@@ -8,8 +8,6 @@
 		{ "key": "baseUrl", "value": "http://localhost:8081" },
 		{ "key": "username", "value": "admin" },
 		{ "key": "password", "value": "change-me" },
-		{ "key": "accessToken", "value": "" },
-		{ "key": "refreshToken", "value": "" },
 		{ "key": "sourceId", "value": "1" },
 		{ "key": "chatId", "value": "100" },
 		{ "key": "mangaId", "value": "" }
@@ -17,7 +15,7 @@
 	"item": [
 		{
 			"name": "Auth",
-			"description": "Получение и обновление токенов. login сохраняет accessToken/refreshToken в переменные коллекции — остальные запросы подставляют их автоматически.",
+			"description": "Получение и обновление токенов через HttpOnly-cookie: login ставит admin_access/admin_refresh, Postman кладёт их в cookie-jar и дальше отправляет автоматически.",
 			"item": [
 				{
 					"name": "login",
@@ -30,20 +28,21 @@
 									"",
 									"const body = pm.response.json();",
 									"",
-									"pm.test('access_token — непустая строка', () => {",
-									"    pm.expect(body.access_token).to.be.a('string').and.to.have.length.above(0);",
-									"});",
-									"pm.test('refresh_token — непустая строка', () => {",
-									"    pm.expect(body.refresh_token).to.be.a('string').and.to.have.length.above(0);",
-									"});",
-									"pm.test('token_type = Bearer', () => pm.expect(body.token_type).to.eql('Bearer'));",
+									
 									"pm.test('expires_in — положительное число', () => {",
 									"    pm.expect(body.expires_in).to.be.above(0);",
 									"});",
 									"",
-									"// Токены — в переменные коллекции для остальных запросов.",
-									"pm.collectionVariables.set('accessToken', body.access_token);",
-									"pm.collectionVariables.set('refreshToken', body.refresh_token);"
+									"// Токены приходят только в HttpOnly-cookie — проверяем Set-Cookie.",
+									"const sc = pm.response.headers.filter(h => h.key.toLowerCase() === 'set-cookie').map(h => h.value).join(';');",
+									"pm.test('ставится admin_access (HttpOnly)', () => {",
+									"    pm.expect(sc).to.include('admin_access=');",
+									"    pm.expect(sc).to.include('HttpOnly');",
+									"});",
+									"pm.test('ставится admin_refresh (HttpOnly)', () => {",
+									"    pm.expect(sc).to.include('admin_refresh=');",
+									"    pm.expect(sc).to.include('HttpOnly');",
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -63,7 +62,7 @@
 							"host": ["{{baseUrl}}"],
 							"path": ["admin-api", "auth", "login"]
 						},
-						"description": "Вход по логину/паролю из env сервера. Выдаёт пару access (JWT) + refresh. Refresh одноразовый: каждый refresh выдаёт новую пару, старый гасится."
+						"description": "Вход по логину/паролю из env сервера. Токены ставятся в HttpOnly-cookie admin_access/admin_refresh (Postman сохранит их в cookie-jar). Refresh одноразовый: каждый refresh выдаёт новую пару, старый гасится."
 					}
 				},
 				{
@@ -75,18 +74,11 @@
 								"exec": [
 									"pm.test('код 200', () => pm.response.to.have.status(200));",
 									"",
-									"const body = pm.response.json();",
-									"const oldRefresh = pm.collectionVariables.get('refreshToken');",
-									"",
-									"pm.test('новый refresh отличается от старого (ротация)', () => {",
-									"    pm.expect(body.refresh_token).to.not.eql(oldRefresh);",
-									"});",
-									"pm.test('access_token — непустая строка', () => {",
-									"    pm.expect(body.access_token).to.be.a('string').and.to.have.length.above(0);",
-									"});",
-									"",
-									"pm.collectionVariables.set('accessToken', body.access_token);",
-									"pm.collectionVariables.set('refreshToken', body.refresh_token);"
+									"pm.test('ротация: приходит новая пара cookie', () => {",
+									"    const sc = pm.response.headers.filter(h => h.key.toLowerCase() === 'set-cookie').map(h => h.value).join(';');",
+									"    pm.expect(sc).to.include('admin_access=');",
+									"    pm.expect(sc).to.include('admin_refresh=');",
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -94,13 +86,7 @@
 					],
 					"request": {
 						"method": "POST",
-						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"refresh_token\": \"{{refreshToken}}\"\n}"
-						},
+						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/admin-api/auth/refresh",
 							"host": ["{{baseUrl}}"],
@@ -111,19 +97,18 @@
 				},
 				{
 					"name": "logout",
-					"auth": {
-						"type": "bearer",
-						"bearer": [
-							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-						]
-					},
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
 									"pm.test('код 204 (без тела)', () => pm.response.to.have.status(204));",
-									"pm.test('тело пустое', () => pm.expect(pm.response.text()).to.eql(''));"
+									"pm.test('тело пустое', () => pm.expect(pm.response.text()).to.eql(''));",
+									"pm.test('обе cookie погашены', () => {",
+									"    const sc = pm.response.headers.filter(h => h.key.toLowerCase() === 'set-cookie').map(h => h.value).join(';');",
+									"    pm.expect(sc).to.include('admin_access=');",
+									"    pm.expect(sc).to.include('admin_refresh=');",
+									"});"
 								],
 								"type": "text/javascript"
 							}
@@ -131,37 +116,20 @@
 					],
 					"request": {
 						"method": "POST",
-						"auth": {
-							"type": "bearer",
-							"bearer": [
-								{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-							]
-						},
-						"header": [
-							{ "key": "Content-Type", "value": "application/json" }
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"refresh_token\": \"{{refreshToken}}\"\n}"
-						},
+						"header": [],
 						"url": {
 							"raw": "{{baseUrl}}/admin-api/auth/logout",
 							"host": ["{{baseUrl}}"],
 							"path": ["admin-api", "auth", "logout"]
 						},
-						"description": "Отзывает refresh-токен. После logout запрос refresh с этим токеном вернёт 401."
+						"description": "Отзывает refresh-сессию и гасит обе auth-cookie. После logout refresh с погашенной cookie вернёт 401."
 					}
 				}
 			]
 		},
 		{
 			"name": "Sources",
-			"auth": {
-				"type": "bearer",
-				"bearer": [
-					{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-				]
-			},
+			
 			"item": [
 				{
 					"name": "list",
@@ -270,12 +238,7 @@
 		},
 		{
 			"name": "Chat users",
-			"auth": {
-				"type": "bearer",
-				"bearer": [
-					{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-				]
-			},
+			
 			"item": [
 				{
 					"name": "list",
@@ -355,12 +318,7 @@
 		{
 			"name": "Manga CRUD",
 			"description": "Полный цикл create → get → update → delete(с телом удалённой записи) → get(404). Запускать через Collection Runner по порядку: create сохраняет {{mangaId}}, update проверяет частичность PATCH.",
-			"auth": {
-				"type": "bearer",
-				"bearer": [
-					{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-				]
-			},
+			
 			"item": [
 				{
 					"name": "list",
@@ -375,6 +333,9 @@
 									"pm.test('manga — массив', () => pm.expect(body.manga).to.be.an('array'));",
 									"pm.test('не больше limit', () => {",
 									"    pm.expect(body.manga.length).to.be.at.most(2);",
+									"});",
+									"pm.test('total — число, не меньше размера страницы', () => {",
+									"    pm.expect(Number(body.total)).to.be.at.least(body.manga.length);",
 									"});"
 								],
 								"type": "text/javascript"
@@ -575,10 +536,10 @@
 		},
 		{
 			"name": "Errors (негативные)",
-			"description": "Проверка кодов ошибок. Запускать после Auth (нужен валидный accessToken для кейсов 400), порядок не критичен.",
+			"description": "Проверка кодов ошибок. Запускать после Auth (нужны cookie от login), порядок не критичен.",
 			"item": [
 				{
-					"name": "без токена — 401",
+					"name": "без cookie — 401",
 					"auth": { "type": "noauth" },
 					"event": [
 						{
@@ -586,8 +547,8 @@
 							"script": {
 								"exec": [
 									"pm.test('код 401', () => pm.response.to.have.status(401));",
-									"pm.test('WWW-Authenticate: Bearer', () => {",
-									"    pm.expect(pm.response.headers.get('WWW-Authenticate')).to.include('Bearer');",
+									"pm.test('WWW-Authenticate: Cookie', () => {",
+									"    pm.expect(pm.response.headers.get('WWW-Authenticate')).to.include('Cookie');",
 									"});",
 									"pm.test('error описан', () => {",
 									"    pm.expect(pm.response.json().error).to.have.length.above(0);",
@@ -642,12 +603,7 @@
 				},
 				{
 					"name": "невалидный status — 400",
-					"auth": {
-						"type": "bearer",
-						"bearer": [
-							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-						]
-					},
+					
 					"event": [
 						{
 							"listen": "test",
@@ -677,12 +633,7 @@
 				},
 				{
 					"name": "limit вне диапазона — 400",
-					"auth": {
-						"type": "bearer",
-						"bearer": [
-							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-						]
-					},
+					
 					"event": [
 						{
 							"listen": "test",
@@ -709,12 +660,7 @@
 				},
 				{
 					"name": "несуществующая манга — 404",
-					"auth": {
-						"type": "bearer",
-						"bearer": [
-							{ "key": "token", "value": "{{accessToken}}", "type": "string" }
-						]
-					},
+					
 					"event": [
 						{
 							"listen": "test",

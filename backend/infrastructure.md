@@ -73,73 +73,70 @@ Docker (вместе с ботом и краулером; сервис adminapi 
 
 Быстрая проверка живости:
 
-    curl http://localhost:8081/admin-api/auth/login \
+    curl -i http://localhost:8081/admin-api/auth/login \
       -H "Content-Type: application/json" \
       -d '{"username":"admin","password":"ваш-пароль"}'
-    # 200 + access_token/refresh_token — API работает
+    # 200 + Set-Cookie admin_access/admin_refresh (HttpOnly) — API работает
 
 ---
 
 ## Admin API — запросы
 
-Все защищённые эндпоинты требуют заголовок:
-
-    Authorization: Bearer <access_token>
+Аутентификация — через HttpOnly-cookie: `login` ставит `admin_access` и
+`admin_refresh` (SameSite=Strict, Path=/admin-api). Дальнейшие запросы cookie
+подставляет сам клиент (браузер, Postman cookie-jar, `curl -b cookies.txt`).
 
 ### Порядок работы
 
-1. `POST /admin-api/auth/login` — получить пару токенов
-   (access живёт 15 минут, refresh — 7 дней).
-2. Дальнейшие запросы — с Bearer access-токеном.
-3. Access истёк (401) → `POST /admin-api/auth/refresh` с refresh-токеном —
-   выдаётся новая пара. Refresh одноразовый: повторное использование старого
-   → 401, обе пары считаются скомпрометированными (нужно перелогиниться).
-4. `POST /admin-api/auth/logout` — отозвать refresh-сессию при выходе.
+1. `POST /admin-api/auth/login` — сервер ставит пару cookie
+   (access живёт 15 минут, refresh — 7 дней; `ADMIN_COOKIE_SECURE=true`
+   включает флаг Secure — только за TLS).
+2. Дальнейшие запросы — с cookie (клиент подставляет автоматически).
+3. Access истёк (401) → `POST /admin-api/auth/refresh` — читает refresh-cookie,
+   выдаёт новую пару (снова в cookie). Refresh одноразовый: повторное
+   использование старого → 401, обе пары считаются скомпрометированными
+   (нужно перелогиниться).
+4. `POST /admin-api/auth/logout` — отозвать refresh-сессию и погасить cookie.
 
-### Примеры (bash)
+### Примеры (bash, cookie-jar)
 
-    # логин
-    TOKENS=$(curl -s http://localhost:8081/admin-api/auth/login \
+    # логин (cookie сохраняются в файл)
+    curl -s -c cookies.txt http://localhost:8081/admin-api/auth/login \
       -H "Content-Type: application/json" \
-      -d '{"username":"admin","password":"ваш-пароль"}')
-    ACCESS=$(echo $TOKENS | jq -r .access_token)
-    REFRESH=$(echo $TOKENS | jq -r .refresh_token)
+      -d '{"username":"admin","password":"ваш-пароль"}'
 
     # список источников
-    curl -s http://localhost:8081/admin-api/sources -H "Authorization: Bearer $ACCESS"
+    curl -s -b cookies.txt http://localhost:8081/admin-api/sources
 
     # выключить источник
-    curl -s -X PATCH http://localhost:8081/admin-api/sources/1/enabled \
-      -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json" \
+    curl -s -b cookies.txt -X PATCH http://localhost:8081/admin-api/sources/1/enabled \
+      -H "Content-Type: application/json" \
       -d '{"enabled":false}'
 
     # создать мангу
-    curl -s -X POST http://localhost:8081/admin-api/manga \
-      -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json" \
+    curl -s -b cookies.txt -X POST http://localhost:8081/admin-api/manga \
+      -H "Content-Type: application/json" \
       -d '{"source_id":1,"url":"test_1","title":"Тест"}'
 
     # частичный PATCH — только переданные поля меняются
-    curl -s -X PATCH http://localhost:8081/admin-api/manga/42 \
-      -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json" \
+    curl -s -b cookies.txt -X PATCH http://localhost:8081/admin-api/manga/42 \
+      -H "Content-Type: application/json" \
       -d '{"title":"Новое название"}'
 
     # удалить — в ответе удалённая запись (последнее состояние перед удалением)
-    curl -s -X DELETE http://localhost:8081/admin-api/manga/42 \
-      -H "Authorization: Bearer $ACCESS"
+    curl -s -b cookies.txt -X DELETE http://localhost:8081/admin-api/manga/42
 
-    # обновить пару токенов
-    curl -s http://localhost:8081/admin-api/auth/refresh \
-      -H "Content-Type: application/json" -d "{\"refresh_token\":\"$REFRESH\"}"
+    # обновить пару токенов (ротация refresh-cookie)
+    curl -s -b cookies.txt -c cookies.txt http://localhost:8081/admin-api/auth/refresh
 
     # выход
-    curl -s -X POST http://localhost:8081/admin-api/auth/logout \
-      -H "Authorization: Bearer $ACCESS" -H "Content-Type: application/json" \
-      -d "{\"refresh_token\":\"$REFRESH\"}"
+    curl -s -b cookies.txt -X POST http://localhost:8081/admin-api/auth/logout
 
 Коды ответов: 200 — успех (DELETE тоже — с телом удалённой записи),
 201 — создано, 204 — без тела (logout),
 400 — неверные данные (тело/параметры, включая enum `status` и `limit`),
 401 — нет/просрочен access или плохой refresh, 404 — не найдено,
+409 — дубликат манги (тот же source_id + url),
 500 — внутренняя ошибка (детали только в логах сервера).
 
 ### Postman
@@ -149,12 +146,12 @@ Docker (вместе с ботом и краулером; сервис adminapi 
 1. Postman → Import → выбрать файл коллекции.
 2. В переменных коллекции задать `username` и `password` (ваши ADMIN_USERNAME
    и пароль; `baseUrl` по умолчанию http://localhost:8081).
-3. Запустить папку **Auth** — `login` сохранит `accessToken`/`refreshToken`
-   в переменные, остальные запросы подставят их автоматически.
+3. Запустить папку **Auth** — `login` поставит HttpOnly-cookie, Postman
+   сохранит их в cookie-jar, остальные запросы отправят их автоматически.
 4. Папка **Manga CRUD** — полный цикл create → get → update → delete → 404;
    запускать через **Collection Runner** (порядок важен: create сохраняет
    `mangaId`, update проверяет частичность PATCH).
-5. Папка **Errors (негативные)** — 401 без токена, 401 с неверным паролем,
+5. Папка **Errors (негативные)** — 401 без cookie, 401 с неверным паролем,
    400 на enum `status` и `limit`, 404 на несуществующую мангу.
 
 Прогон всех тестов: Runner → выбрать коллекцию → Run. Все запросы содержат

@@ -4,9 +4,11 @@ info:
   description: |
     API админ-панели: источники, пользователи чатов бота, манга.
 
-    Защищённые эндпоинты требуют заголовок `Authorization: Bearer <access-токен>`,
-    выданный `POST /auth/login`. Access-токен короткоживущий, обновляется парой
-    через `POST /auth/refresh`.
+    Аутентификация — HttpOnly-cookie: `POST /auth/login` ставит cookie
+    `admin_access` (JWT, короткий) и `admin_refresh` (opaque, ротируется и
+    хранится хэшем в БД); обе с `SameSite=Strict` и `Path=/admin-api`.
+    Защищённые эндпоинты требуют access-cookie, обновление пары — через
+    `POST /auth/refresh` (читает refresh-cookie, ротирует обе).
   version: 1.0.0
 servers:
   - url: /admin-api
@@ -21,7 +23,7 @@ tags:
     description: Каталог манги
 
 security:
-  - bearerAuth: []
+  - cookieAuth: []
 
 paths:
   /auth/login:
@@ -30,8 +32,9 @@ paths:
       operationId: login
       summary: Вход
       description: >
-        Проверяет логин/пароль против env (bcrypt) и выдаёт пару токенов:
+        Проверяет логин/пароль против env (bcrypt) и выпускает пару токенов:
         access (JWT, короткий) + refresh (opaque, ротируется и хранится хэшем в БД).
+        Токены ставятся в HttpOnly-cookie admin_access и admin_refresh.
       security: []
       requestBody:
         required: true
@@ -57,19 +60,14 @@ paths:
       operationId: refresh
       summary: Обновление пары токенов
       description: >
-        Ротация: старый refresh гасится (одноразовый), выдаётся новая пара.
+        Читает refresh-токен из cookie admin_refresh. Ротация: старый refresh
+        гасится (одноразовый), выдаётся новая пара (снова в cookie).
         Повторное использование уже погашенного токена отклоняется — признак
         возможной кражи, все токены пары считаются скомпрометированными.
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
       responses:
         '200':
-          description: Новая пара токенов
+          description: Новая пара токенов (в cookie)
           content:
             application/json:
               schema:
@@ -85,19 +83,12 @@ paths:
       operationId: logout
       summary: Выход
       description: >
-        Отзывает refresh-токен сессии; access-токен просто доживёт до истечения exp.
-        Bearer access-токен обязателен.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RefreshRequest'
+        Отзывает refresh-токен сессии (из cookie admin_refresh, если cookie была)
+        и гасит обе auth-cookie; access-токен просто доживёт до истечения exp.
+        Access-cookie обязательна.
       responses:
         '204':
-          description: Refresh-токен отозван
-        '400':
-          $ref: '#/components/responses/BadRequest'
+          description: Refresh-токен отозван, cookie погашены
         '401':
           $ref: '#/components/responses/Unauthorized'
         '500':
@@ -351,6 +342,14 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Дубликат — манга с таким url уже есть у источника
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: манга с таким url уже есть у этого источника
         '500':
           $ref: '#/components/responses/Internal'
 
@@ -471,11 +470,11 @@ paths:
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: Access-токен из POST /auth/login
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: admin_access
+      description: Access-JWT из POST /auth/login (HttpOnly-cookie)
 
   parameters:
     SourceID:
@@ -547,28 +546,20 @@ components:
           type: string
           example: s3cr3t
 
-    RefreshRequest:
-      type: object
-      required: [refresh_token]
-      properties:
-        refresh_token:
-          type: string
-
     TokenPair:
       type: object
-      required: [access_token, refresh_token, token_type, expires_in]
+      required: [token_type, expires_in]
+      description: >
+        Токены отдаются только в HttpOnly-cookie (admin_access и admin_refresh,
+        SameSite=Strict, Path=/admin-api) — в теле ответа их нет.
       properties:
-        access_token:
-          type: string
-        refresh_token:
-          type: string
         token_type:
           type: string
           example: Bearer
         expires_in:
           type: integer
           format: int64
-          description: Срок жизни access-токена, сек
+          description: Срок жизни access-cookie (Max-Age), сек
           example: 900
 
     EnabledRequest:
@@ -739,9 +730,15 @@ components:
 
     MangaList:
       type: object
-      required: [manga]
+      required: [manga, total]
       properties:
         manga:
           type: array
           items:
             $ref: '#/components/schemas/Manga'
+        total:
+          type: integer
+          format: int64
+          description: >
+            Общее число манг под фильтром (без учёта limit/offset) —
+            для пагинатора «страница X из Y».

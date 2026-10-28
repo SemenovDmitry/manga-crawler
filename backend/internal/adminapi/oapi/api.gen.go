@@ -105,6 +105,9 @@ type MangaCreate struct {
 // MangaList defines model for MangaList.
 type MangaList struct {
 	Manga []Manga `json:"manga"`
+
+	// Total Общее число манг под фильтром (без учёта limit/offset) — для пагинатора «страница X из Y».
+	Total int64 `json:"total"`
 }
 
 // MangaUpdate Частичное обновление: отсутствующие поля не изменяются.
@@ -118,11 +121,6 @@ type MangaUpdate struct {
 
 // PublicationStatus defines model for PublicationStatus.
 type PublicationStatus string
-
-// RefreshRequest defines model for RefreshRequest.
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
-}
 
 // Source defines model for Source.
 type Source struct {
@@ -143,15 +141,12 @@ type SourceList struct {
 	Sources []Source `json:"sources"`
 }
 
-// TokenPair defines model for TokenPair.
+// TokenPair Токены отдаются только в HttpOnly-cookie (admin_access и admin_refresh, SameSite=Strict, Path=/admin-api) — в теле ответа их нет.
 type TokenPair struct {
-	AccessToken string `json:"access_token"`
-
-	// ExpiresIn Срок жизни access-токена, сек
+	// ExpiresIn Срок жизни access-cookie (Max-Age), сек
 	//
 	// Example: 900
-	ExpiresIn    int64  `json:"expires_in"`
-	RefreshToken string `json:"refresh_token"`
+	ExpiresIn int64 `json:"expires_in"`
 
 	// TokenType Example: Bearer
 	TokenType string `json:"token_type"`
@@ -203,12 +198,6 @@ type ListSourcesParams struct {
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
-
-// LogoutJSONRequestBody defines body for Logout for application/json ContentType.
-type LogoutJSONRequestBody = RefreshRequest
-
-// RefreshJSONRequestBody defines body for Refresh for application/json ContentType.
-type RefreshJSONRequestBody = RefreshRequest
 
 // SetChatUserEnabledJSONRequestBody defines body for SetChatUserEnabled for application/json ContentType.
 type SetChatUserEnabledJSONRequestBody = EnabledRequest

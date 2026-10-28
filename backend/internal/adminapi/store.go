@@ -22,6 +22,7 @@ type Store interface {
 
 	// manga
 	ListManga(filter storage.MangaFilter) ([]storage.Manga, error)
+	CountManga(filter storage.MangaFilter) (int64, error)
 	GetManga(id int64) (storage.Manga, error)
 	CreateManga(m storage.Manga) (storage.Manga, error)
 	UpdateManga(id int64, patch storage.MangaPatch) (storage.Manga, error)

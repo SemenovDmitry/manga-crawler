@@ -141,6 +141,215 @@ func (f *fakeRepo) UpsertManga(_ int, urlPart string, _, _, _ string, _ storage.
 	return int64(len(f.upserts)), nil
 }
 
+// ——— автоотключение источника при ошибках парсинга ———
+
+// brokenDriver — драйвер, чей парсинг карточки всегда падает.
+type brokenDriver struct {
+	fakeDriver
+}
+
+func (brokenDriver) ParseMangaCard([]byte) (*parsers.MangaCard, error) {
+	return nil, errors.New("страница не является карточкой манги (заголовок не найден)")
+}
+
+// disablingRepo — мок хранилища с записью отключений источников
+// и сервисных сообщений.
+type disablingRepo struct {
+	repo
+	disabledIDs []int
+	serviceText []string
+}
+
+func (r *disablingRepo) GetMangaState(_ int, _ string) (storage.MangaState, bool, error) {
+	return storage.MangaState{}, false, nil
+}
+
+func (r *disablingRepo) UpsertManga(_ int, urlPart string, _, _, _ string, _ storage.PublicationStatus, _ int) (int64, error) {
+	return 1, nil
+}
+
+func (r *disablingRepo) SetSourceEnabled(id int, enabled bool) (storage.Source, error) {
+	if enabled {
+		return storage.Source{ID: id, Enabled: true}, nil
+	}
+	r.disabledIDs = append(r.disabledIDs, id)
+	return storage.Source{ID: id, Enabled: false}, nil
+}
+
+func (r *disablingRepo) EnqueueServiceNotification(chatID int64, text string) error {
+	r.serviceText = append(r.serviceText, fmt.Sprintf("chat=%d: %s", chatID, text))
+	return nil
+}
+
+func newDisablingCrawler(t *testing.T, srvURL string, limit int) (*Crawler, *disablingRepo) {
+	t.Helper()
+	store := &disablingRepo{}
+	c := New(store, Config{
+		CardFailureLimit: limit,
+		OwnerChatID:      "42",
+	})
+	return c, store
+}
+
+func TestProcessNewURLsDisablesSourceAfterThreshold(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html>битая карточка</html>"))
+	}))
+	defer srv.Close()
+
+	c, store := newDisablingCrawler(t, srv.URL, 3)
+	src := crawlTarget{source: storage.Source{ID: 7, Name: "broken", BaseURL: srv.URL}, driver: brokenDriver{}}
+
+	urls := []string{
+		srv.URL + "/manga/a",
+		srv.URL + "/manga/b",
+		srv.URL + "/manga/c",
+		srv.URL + "/manga/d", // порог (3) достигнут на предыдущей — эта не парсится
+		srv.URL + "/manga/e",
+	}
+
+	res, err := c.processNewURLs(context.Background(), src, "Тест", urls, urlSet{})
+
+	// Прервано автоотключением, а не отменой.
+	var disabledErr errSourceDisabled
+	if !errors.As(err, &disabledErr) {
+		t.Fatalf("ожидалась errSourceDisabled, получено: %v", err)
+	}
+
+	if res.processed != 0 {
+		t.Errorf("processed=%d, ожидалось 0 (парсинг всегда падает)", res.processed)
+	}
+	if len(store.disabledIDs) != 1 || store.disabledIDs[0] != 7 {
+		t.Errorf("отключённые источники: %v, ожидался [7]", store.disabledIDs)
+	}
+	if len(store.serviceText) != 1 {
+		t.Fatalf("сервисных сообщений: %d, ожидалось 1: %v", len(store.serviceText), store.serviceText)
+	}
+	text := store.serviceText[0]
+	for _, want := range []string{"chat=42", "broken", "3 раз подряд", "отключён"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("в сервисном сообщении нет %q:\n%s", want, text)
+		}
+	}
+}
+
+// switchableDriver — драйвер, который падает на теле-маркере "FAIL"
+// и успешно парсит всё остальное.
+type switchableDriver struct {
+	fakeDriver
+}
+
+func (d *switchableDriver) ParseMangaCard(body []byte) (*parsers.MangaCard, error) {
+	if strings.Contains(string(body), "FAIL") {
+		return nil, errors.New("страница не является карточкой манги (заголовок не найден)")
+	}
+	return d.fakeDriver.ParseMangaCard(body)
+}
+
+func TestProcessNewURLsSuccessResetsFailureStreak(t *testing.T) {
+	// Серия ошибок сбрасывается успешной карточкой: разовые сбои среди
+	// рабочих страниц источник не отключают.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "bad") {
+			_, _ = w.Write([]byte("FAIL: битая карточка"))
+			return
+		}
+		_, _ = w.Write([]byte("<html>хорошая карточка</html>"))
+	}))
+	defer srv.Close()
+
+	store := &disablingRepo{}
+	c := New(store, Config{CardFailureLimit: 3, OwnerChatID: "42"})
+	src := crawlTarget{
+		source: storage.Source{ID: 5, Name: "mixed", BaseURL: srv.URL},
+		driver: &switchableDriver{},
+	}
+
+	urls := []string{
+		srv.URL + "/manga/bad1", // серия 1
+		srv.URL + "/manga/bad2", // серия 2
+		srv.URL + "/manga/good", // успех — серия сброшена
+		srv.URL + "/manga/bad3", // серия 1
+		srv.URL + "/manga/bad4", // серия 2
+		srv.URL + "/manga/bad5", // серия 3 — порог, отключение
+		srv.URL + "/manga/after",// после отключения не парсится
+	}
+
+	_, err := c.processNewURLs(context.Background(), src, "Тест", urls, urlSet{})
+
+	var disabledErr errSourceDisabled
+	if !errors.As(err, &disabledErr) {
+		t.Fatalf("ожидалась errSourceDisabled, получено: %v", err)
+	}
+	if len(store.disabledIDs) != 1 || store.disabledIDs[0] != 5 {
+		t.Errorf("отключённые источники: %v, ожидался [5]", store.disabledIDs)
+	}
+	if len(store.serviceText) != 1 {
+		t.Fatalf("сервисных сообщений: %d, ожидалось 1", len(store.serviceText))
+	}
+	if !strings.Contains(store.serviceText[0], "3 раз подряд") {
+		t.Errorf("в сообщении нет серии из 3 ошибок:\n%s", store.serviceText[0])
+	}
+}
+
+func TestProcessNewURLsAutoDisableDisabledByConfig(t *testing.T) {
+	// CardFailureLimit=0 — автоотключение выключено: ошибки копятся,
+	// но источник не отключается и обход продолжается.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html>битая карточка</html>"))
+	}))
+	defer srv.Close()
+
+	c, store := newDisablingCrawler(t, srv.URL, 0)
+	src := crawlTarget{source: storage.Source{ID: 9, Name: "nolimit", BaseURL: srv.URL}, driver: brokenDriver{}}
+
+	urls := []string{srv.URL + "/manga/a", srv.URL + "/manga/b", srv.URL + "/manga/c", srv.URL + "/manga/d", srv.URL + "/manga/e"}
+	res, err := c.processNewURLs(context.Background(), src, "Тест", urls, urlSet{})
+	if err != nil {
+		t.Fatalf("неожиданная ошибка: %v", err)
+	}
+	if res.processed != 0 || res.skipped != 0 {
+		t.Errorf("processed=%d skipped=%d (все карточки падают)", res.processed, res.skipped)
+	}
+	if len(store.disabledIDs) != 0 {
+		t.Errorf("при пороге 0 источник отключаться не должен: %v", store.disabledIDs)
+	}
+	if len(store.serviceText) != 0 {
+		t.Errorf("сервисных сообщений быть не должно: %v", store.serviceText)
+	}
+}
+
+func TestSourceDisabledMessage(t *testing.T) {
+	text := formatSourceDisabledMessage(
+		SourceInfo{Name: "MangaLib", BaseURL: "https://mangalib.me"},
+		20,
+		errors.New("страница не является карточкой манги mangalib (SPA-каркас)"),
+	)
+
+	for _, want := range []string{
+		"🛑", "MangaLib", "20 раз подряд", "SPA-каркас", "Включить обратно",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("в сообщении нет %q:\n%s", want, text)
+		}
+	}
+	// HTML в тексте ошибки экранируется.
+	if strings.Contains(text, "<b>Источник") == false {
+		t.Errorf("заголовок потерял разметку:\n%s", text)
+	}
+}
+
+func TestQueueNotifierServiceMessageWithoutOwner(t *testing.T) {
+	// ownerChatID=0 (TELEGRAM_CHAT_ID не задан): сообщение не ставится в
+	// очередь и не паникует.
+	store := &disablingRepo{}
+	n := NewQueueNotifier(store, 0)
+	n.ServiceMessage("тест")
+	if len(store.serviceText) != 0 {
+		t.Errorf("без чата хозяина сообщений быть не должно: %v", store.serviceText)
+	}
+}
+
 // ——— processNewURLs ———
 
 func TestProcessNewURLs(t *testing.T) {

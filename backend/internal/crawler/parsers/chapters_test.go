@@ -69,3 +69,68 @@ func TestFindNewChapters(t *testing.T) {
 		})
 	}
 }
+
+// FindNewChaptersSince — уведомляем только о главах новее последнего
+// известного номера: догруженная драйвером старая история (mgeko:
+// карточка 50 глав → полный список 129) не должна считаться новыми главами.
+func TestFindNewChaptersSince(t *testing.T) {
+	chapters := []Chapter{
+		{Number: "1"},
+		{Number: "36.1"},
+		{Number: "50"},
+		{Number: "126"},
+		{Number: "127"},
+	}
+
+	cases := []struct {
+		name        string
+		latest      string
+		knownCount  int
+		wantCount   int
+		wantNumbers []string
+	}{
+		{
+			name:        "догрузка истории не уведомляет",
+			latest:      "127", // в БД уже видели главу 127
+			knownCount:  50,    // карточных глав было 50, стало 5 — счётчик сломан
+			wantCount:   0,
+			wantNumbers: nil,
+		},
+		{
+			name:        "реально новые главы",
+			latest:      "125",
+			knownCount:  3,
+			wantCount:   2,
+			wantNumbers: []string{"126", "127"},
+		},
+		{
+			name:        "нечисловой последний номер — счётчик",
+			latest:      "особая",
+			knownCount:  4,
+			wantCount:   1,
+			wantNumbers: []string{"127"},
+		},
+		{
+			name:        "пустой последний номер — счётчик",
+			latest:      "",
+			knownCount:  4,
+			wantCount:   1,
+			wantNumbers: []string{"127"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FindNewChaptersSince(chapters, tc.latest, tc.knownCount)
+
+			if len(got) != tc.wantCount {
+				t.Fatalf("новых глав: получено %d, ожидалось %d", len(got), tc.wantCount)
+			}
+			for i, want := range tc.wantNumbers {
+				if got[i].Number != want {
+					t.Errorf("новая глава %d: получено %q, ожидалось %q", i, got[i].Number, want)
+				}
+			}
+		})
+	}
+}

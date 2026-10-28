@@ -7,7 +7,12 @@ import (
 	"strings"
 
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/crawler/parsers"
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
+
+// SourceInfo — минимальные данные источника для сообщений и логов
+// (имя и базовый адрес), без зависимости от storage в сигнатурах.
+type SourceInfo = storage.Source
 
 // maxNotificationChapters — сколько номеров глав показывать в уведомлении;
 // остальное сворачивается в «(и ещё N)».
@@ -21,23 +26,45 @@ type Notifier interface {
 	NewChapters(mangaID int64, rawURL, title string, newChapters []parsers.Chapter)
 }
 
+// ServiceNotifier — доставка сервисных сообщений хозяину бота
+// (автоотключение источника и т.п.). Реализуется QueueNotifier.
+type ServiceNotifier interface {
+	// ServiceMessage отправляет сообщение хозяину (TELEGRAM_CHAT_ID).
+	ServiceMessage(text string)
+}
+
 // NotificationQueue — операции с очередью рассылки (реализуется
 // *storage.Store): уведомления копятся в БД, рассылкой занимается
 // процесс бота.
 type NotificationQueue interface {
 	SubscriberChatIDs(mangaID int64) ([]int64, error)
 	EnqueueNotification(chatID, mangaID int64, text string) error
+	EnqueueServiceNotification(chatID int64, text string) error
 }
 
 // QueueNotifier — реализация Notifier поверх очереди уведомлений в БД:
 // формирует текст сообщения и ставит его каждому подписчику манги.
 type QueueNotifier struct {
-	queue NotificationQueue
+	queue       NotificationQueue
+	ownerChatID int64 // 0 — сервисные сообщения не отправляются
 }
 
 // NewQueueNotifier собирает нотификатор над очередью рассылки.
-func NewQueueNotifier(queue NotificationQueue) *QueueNotifier {
-	return &QueueNotifier{queue: queue}
+// ownerChatID — чат хозяина для сервисных сообщений (0 — не отправлять).
+func NewQueueNotifier(queue NotificationQueue, ownerChatID int64) *QueueNotifier {
+	return &QueueNotifier{queue: queue, ownerChatID: ownerChatID}
+}
+
+// ServiceMessage ставит сервисное сообщение в очередь хозяину бота.
+func (n *QueueNotifier) ServiceMessage(text string) {
+	if n.ownerChatID == 0 {
+		log.Printf("Сервисное сообщение не отправлено (TELEGRAM_CHAT_ID не задан): %s", singleLine(text))
+		return
+	}
+
+	if err := n.queue.EnqueueServiceNotification(n.ownerChatID, text); err != nil {
+		log.Printf("Ошибка постановки сервисного уведомления в очередь: %v", err)
+	}
 }
 
 // NewChapters ставит уведомление о новых главах в очередь рассылки
@@ -85,4 +112,42 @@ func formatNewChaptersMessage(title, rawURL string, newChapters []parsers.Chapte
 		suffix,
 		rawURL,
 	)
+}
+
+// formatSourceDisabledMessage собирает текст сервисного сообщения хозяину
+// об автоотключении источника после серии ошибок парсинга.
+func formatSourceDisabledMessage(src SourceInfo, failures int, parseErr error) string {
+	return fmt.Sprintf(
+		"🛑 <b>Источник «%s» отключён автоматически</b>\n"+
+			"<i>Парсинг карточек падал %d раз подряд — похоже, сайт изменил разметку.</i>\n\n"+
+			"Последняя ошибка: <code>%s</code>\n\n"+
+			"Инкрементальный обход источника прерван, новые главы из него приходить не будут.\n"+
+			"Включить обратно: админка → sources → enabled (после исправления причины).",
+		html.EscapeString(src.Name),
+		failures,
+		html.EscapeString(truncateText(singleLine(errText(parseErr)), 300)),
+	)
+}
+
+// errText безопасно извлекает текст ошибки (nil — заглушка).
+func errText(err error) string {
+	if err == nil {
+		return "неизвестная ошибка"
+	}
+	return err.Error()
+}
+
+// singleLine сворачивает переносы в пробелы: сервисное сообщение уходит
+// в одну строку лога, а внутри Telegram-текста переносы задаются явно.
+func singleLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// truncateText ограничивает строку limit рунами, длинные — с многоточием.
+func truncateText(s string, limit int) string {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit]) + "…"
 }

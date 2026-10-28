@@ -1,0 +1,8 @@
+node_modules/
+dist/
+routeTree.gen.ts
+*.local
+.DS_Store
+.tanstack/
+tsconfig.tsbuildinfo
+.tmp-build/

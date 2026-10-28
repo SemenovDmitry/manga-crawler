@@ -27,7 +27,6 @@ type fakeStore struct {
 	nextMangaID int64
 	sessions    map[string]storage.AdminSession // ключ — хэш refresh-токена
 }
-
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		sources:   map[int]storage.Source{1: {ID: 1, Name: "grouple", Engine: "grouple", Enabled: true, FullCrawlIntervalSecs: 86400}},
@@ -146,6 +145,24 @@ func (f *fakeStore) SetChatUserBlocked(chatID int64, blocked bool) (storage.Chat
 func (f *fakeStore) ListManga(filter storage.MangaFilter) ([]storage.Manga, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	out, _ := f.listMangaLocked(filter)
+	return out, nil
+}
+
+func (f *fakeStore) CountManga(filter storage.MangaFilter) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// total считается по фильтру без LIMIT/OFFSET.
+	_, total := f.listMangaLocked(storage.MangaFilter{
+		SourceID:          filter.SourceID,
+		Query:             filter.Query,
+		PublicationStatus: filter.PublicationStatus,
+	})
+	return total, nil
+}
+
+// listMangaLocked — общая фильтрация fakeStore; вызывает под мьютексом.
+func (f *fakeStore) listMangaLocked(filter storage.MangaFilter) ([]storage.Manga, int64) {
 	var out []storage.Manga
 	for _, m := range f.manga {
 		if filter.SourceID != 0 && m.SourceID != filter.SourceID {
@@ -156,6 +173,7 @@ func (f *fakeStore) ListManga(filter storage.MangaFilter) ([]storage.Manga, erro
 		}
 		out = append(out, m)
 	}
+	total := int64(len(out))
 	if filter.Offset > 0 && filter.Offset < len(out) {
 		out = out[filter.Offset:]
 	} else if filter.Offset > 0 {
@@ -164,7 +182,7 @@ func (f *fakeStore) ListManga(filter storage.MangaFilter) ([]storage.Manga, erro
 	if filter.Limit > 0 && len(out) > filter.Limit {
 		out = out[:filter.Limit]
 	}
-	return out, nil
+	return out, total
 }
 
 func (f *fakeStore) GetManga(id int64) (storage.Manga, error) {
@@ -183,6 +201,12 @@ func (f *fakeStore) CreateManga(m storage.Manga) (storage.Manga, error) {
 	// Как FK в реальной БД: несуществующий источник — ErrSourceNotFound.
 	if _, ok := f.sources[m.SourceID]; !ok {
 		return storage.Manga{}, storage.ErrSourceNotFound
+	}
+	// Как UNIQUE (parse_source_id, url) в реальной БД: дубликат — ErrMangaDuplicate.
+	for _, existing := range f.manga {
+		if existing.SourceID == m.SourceID && existing.URL == m.URL {
+			return storage.Manga{}, storage.ErrMangaDuplicate
+		}
 	}
 	m.ID = f.nextMangaID
 	f.nextMangaID++
@@ -244,12 +268,9 @@ func testServer(t *testing.T) (*gin.Engine, *fakeStore) {
 	return newEngine(store, cfg), store
 }
 
-func doJSON(t *testing.T, r *gin.Engine, method, target, token, body string) *httptest.ResponseRecorder {
+func doJSON(t *testing.T, r *gin.Engine, method, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -258,56 +279,104 @@ func doJSON(t *testing.T, r *gin.Engine, method, target, token, body string) *ht
 	return rec
 }
 
-func login(t *testing.T, r *gin.Engine) (access, refresh string) {
+// withAuthCookie добавляет access-cookie (requireAuth теперь читает cookie,
+// а не Authorization-заголовок).
+func withAuthCookie(req *http.Request, token string) *http.Request {
+	req.AddCookie(&http.Cookie{Name: cookieAccess, Value: token})
+	return req
+}
+
+func doAuthJSON(t *testing.T, r *gin.Engine, method, target, access, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	rec := doJSON(t, r, http.MethodPost, "/admin-api/auth/login", "",
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if access != "" {
+		withAuthCookie(req, access)
+	}
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// login выполняет вход и возвращает access-токен; refresh остаётся в cookie
+// рекордера ответа (cookieAccess/cookieRefresh, Path=/admin-api).
+func login(t *testing.T, r *gin.Engine) (access string, refreshCookieValue *http.Cookie) {
+	t.Helper()
+	rec := doJSON(t, r, http.MethodPost, "/admin-api/auth/login",
 		jsonBody(t, map[string]string{"username": "admin", "password": "test-password"}))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("login: код %d, тело %s", rec.Code, rec.Body.String())
 	}
 	var pair struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
+		TokenType string `json:"token_type"`
+		ExpiresIn int64  `json:"expires_in"`
 	}
 	if err := parseJSON(rec.Body.String(), &pair); err != nil {
 		t.Fatalf("разбор token pair: %v", err)
 	}
-	return pair.AccessToken, pair.RefreshToken
+
+	var accessCookie, refresh *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		switch c.Name {
+		case cookieAccess:
+			accessCookie = c
+		case cookieRefresh:
+			refresh = c
+		}
+	}
+	if accessCookie == nil || refresh == nil {
+		t.Fatalf("login: нет auth-cookie, получены %v", rec.Result().Cookies())
+	}
+	return accessCookie.Value, refresh
 }
 
-// TestLoginFlow — вход и доступ к защищённому роуту с access-токеном.
+// TestLoginFlow — вход и доступ к защищённому роуту с access-cookie.
 func TestLoginFlow(t *testing.T) {
 	r, _ := testServer(t)
 
-	// Неверный пароль — 401.
-	rec := doJSON(t, r, http.MethodPost, "/admin-api/auth/login", "",
+	// Неверный пароль — 401, cookie не ставятся.
+	rec := doJSON(t, r, http.MethodPost, "/admin-api/auth/login",
 		jsonBody(t, map[string]string{"username": "admin", "password": "wrong"}))
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("неверный пароль: код %d, ожидался 401", rec.Code)
 	}
+	if n := len(rec.Result().Cookies()); n != 0 {
+		t.Errorf("при неудачном логине поставлены cookie: %v", rec.Result().Cookies())
+	}
 
 	// Корректный вход.
-	access, _ := login(t, r)
+	access, refresh := login(t, r)
+	if refresh.Value == "" || access == "" {
+		t.Fatalf("login: пустые токены")
+	}
+	// Cookie должны быть HttpOnly (JS не читает токены).
+	for _, c := range []*http.Cookie{refresh} {
+		if !c.HttpOnly {
+			t.Errorf("cookie %s не HttpOnly", c.Name)
+		}
+	}
 
-	// Без токена — 401 + WWW-Authenticate.
-	rec = doJSON(t, r, http.MethodGet, "/admin-api/sources", "", "")
+	// Без cookie — 401 + WWW-Authenticate с cookie-схемой.
+	rec = doJSON(t, r, http.MethodGet, "/admin-api/sources", "")
 	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("без токена: код %d, ожидался 401", rec.Code)
+		t.Errorf("без cookie: код %d, ожидался 401", rec.Code)
 	}
-	if got := rec.Header().Get("WWW-Authenticate"); !strings.Contains(got, "Bearer") {
-		t.Errorf("WWW-Authenticate = %q, ожидался Bearer", got)
+	if got := rec.Header().Get("WWW-Authenticate"); !strings.Contains(got, "Cookie") {
+		t.Errorf("WWW-Authenticate = %q, ожидался Cookie", got)
 	}
 
-	// С мусорным токеном — 401.
-	rec = doJSON(t, r, http.MethodGet, "/admin-api/sources", "garbage", "")
+	// С мусорным access — 401.
+	rec = doAuthJSON(t, r, http.MethodGet, "/admin-api/sources", "garbage", "")
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("мусорный токен: код %d, ожидался 401", rec.Code)
 	}
 
-	// С валидным токеном — 200 и схема ответа.
-	rec = doJSON(t, r, http.MethodGet, "/admin-api/sources", access, "")
+	// С валидным access — 200 и схема ответа.
+	rec = doAuthJSON(t, r, http.MethodGet, "/admin-api/sources", access, "")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("с токеном: код %d, тело %s", rec.Code, rec.Body.String())
+		t.Fatalf("с cookie: код %d, тело %s", rec.Code, rec.Body.String())
 	}
 	var list struct {
 		Sources []struct {
@@ -324,47 +393,78 @@ func TestLoginFlow(t *testing.T) {
 	}
 }
 
-// TestRefreshRotation — ротация и отказ при повторном использовании refresh.
+// TestRefreshRotation — ротация refresh-cookie и отказ при повторном использовании.
 func TestRefreshRotation(t *testing.T) {
 	r, _ := testServer(t)
 	_, refresh1 := login(t, r)
 
-	// Первый refresh — успех, приходит новая пара.
-	rec := doJSON(t, r, http.MethodPost, "/admin-api/auth/refresh", "",
-		jsonBody(t, map[string]string{"refresh_token": refresh1}))
+	doRefresh := func(c *http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/admin-api/auth/refresh", nil)
+		req.AddCookie(c)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Первый refresh — успех, приходит новая пара cookie.
+	rec := doRefresh(refresh1)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("refresh: код %d, тело %s", rec.Code, rec.Body.String())
 	}
+	var refresh2 *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cookieRefresh {
+			refresh2 = c
+		}
+	}
+	if refresh2 == nil || refresh2.Value == "" {
+		t.Fatalf("refresh: нет новой cookie %s", cookieRefresh)
+	}
+	if refresh2.Value == refresh1.Value {
+		t.Errorf("refresh-cookie не ротировалась")
+	}
 
-	// Повторное использование старого refresh — 401.
-	rec = doJSON(t, r, http.MethodPost, "/admin-api/auth/refresh", "",
-		jsonBody(t, map[string]string{"refresh_token": refresh1}))
-	if rec.Code != http.StatusUnauthorized {
+	// Повторное использование старой refresh-cookie — 401.
+	if rec := doRefresh(refresh1); rec.Code != http.StatusUnauthorized {
 		t.Errorf("повторный refresh: код %d, ожидался 401", rec.Code)
 	}
 
-	// Неизвестный refresh — 401.
-	rec = doJSON(t, r, http.MethodPost, "/admin-api/auth/refresh", "",
-		jsonBody(t, map[string]string{"refresh_token": "no-such-token"}))
-	if rec.Code != http.StatusUnauthorized {
+	// Неизвестная refresh-cookie — 401.
+	if rec := doRefresh(&http.Cookie{Name: cookieRefresh, Value: "no-such-token"}); rec.Code != http.StatusUnauthorized {
 		t.Errorf("неизвестный refresh: код %d, ожидался 401", rec.Code)
 	}
 }
 
-// TestLogoutRevokesRefresh — logout гасит refresh-токен.
+// TestLogoutRevokesRefresh — logout отзывает refresh-cookie и гасит обе cookie.
 func TestLogoutRevokesRefresh(t *testing.T) {
 	r, _ := testServer(t)
 	access, refresh := login(t, r)
 
-	rec := doJSON(t, r, http.MethodPost, "/admin-api/auth/logout", access,
-		jsonBody(t, map[string]string{"refresh_token": refresh}))
+	req := httptest.NewRequest(http.MethodPost, "/admin-api/auth/logout", nil)
+	withAuthCookie(req, access)
+	req.AddCookie(refresh)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("logout: код %d, тело %s", rec.Code, rec.Body.String())
 	}
 
+	// Обе cookie погашены (Max-Age<1).
+	cleared := map[string]bool{}
+	for _, c := range rec.Result().Cookies() {
+		if c.MaxAge < 1 {
+			cleared[c.Name] = true
+		}
+	}
+	if !cleared[cookieAccess] || !cleared[cookieRefresh] {
+		t.Errorf("logout не погасил cookie: %v", cleared)
+	}
+
 	// Отозванный refresh больше не работает.
-	rec = doJSON(t, r, http.MethodPost, "/admin-api/auth/refresh", "",
-		jsonBody(t, map[string]string{"refresh_token": refresh}))
+	req = httptest.NewRequest(http.MethodPost, "/admin-api/auth/refresh", nil)
+	req.AddCookie(refresh)
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("refresh после logout: код %d, ожидался 401", rec.Code)
 	}
@@ -388,10 +488,56 @@ func TestQueryValidation(t *testing.T) {
 		{"?query=пьеса", http.StatusOK},                    // поиск
 	}
 	for _, tc := range cases {
-		rec := doJSON(t, r, http.MethodGet, "/admin-api/manga"+tc.query, access, "")
+		rec := doAuthJSON(t, r, http.MethodGet, "/admin-api/manga"+tc.query, access, "")
 		if rec.Code != tc.want {
 			t.Errorf("GET /manga%s: код %d, ожидался %d", tc.query, rec.Code, tc.want)
 		}
+	}
+}
+
+// TestListMangaTotal — listManga отдаёт total по фильтру независимо от пагинации.
+func TestListMangaTotal(t *testing.T) {
+	r, store := testServer(t)
+	// Ещё одна завершённая манга, чтобы total отличался от длины страницы.
+	_, err := store.CreateManga(storage.Manga{
+		SourceID: 1, URL: "one_piece", Title: "Ван-Пис", PublicationStatus: storage.StatusCompleted,
+	})
+	if err != nil {
+		t.Fatalf("seed manga: %v", err)
+	}
+
+	access, _ := login(t, r)
+
+	rec := doAuthJSON(t, r, http.MethodGet, "/admin-api/manga?limit=1", access, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list: код %d, тело %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Total int64 `json:"total"`
+		Items []struct {
+			ID int64 `json:"id"`
+		} `json:"manga"`
+	}
+	if err := parseJSON(rec.Body.String(), &list); err != nil {
+		t.Fatalf("разбор manga list: %v", err)
+	}
+	if list.Total != 2 {
+		t.Errorf("total = %d, ожидалось 2", list.Total)
+	}
+	if len(list.Items) != 1 {
+		t.Errorf("страница = %d манг, ожидалась 1 (limit=1)", len(list.Items))
+	}
+
+	// Фильтр по статусу тоже меняет total.
+	rec = doAuthJSON(t, r, http.MethodGet, "/admin-api/manga?status=completed", access, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list с фильтром: код %d", rec.Code)
+	}
+	if err := parseJSON(rec.Body.String(), &list); err != nil {
+		t.Fatalf("разбор manga list: %v", err)
+	}
+	if list.Total != 1 {
+		t.Errorf("total по статусу = %d, ожидалось 1", list.Total)
 	}
 }
 
@@ -400,7 +546,7 @@ func TestPatchMangaPartial(t *testing.T) {
 	r, store := testServer(t)
 	access, _ := login(t, r)
 
-	rec := doJSON(t, r, http.MethodPatch, "/admin-api/manga/42", access,
+	rec := doAuthJSON(t, r, http.MethodPatch, "/admin-api/manga/42", access,
 		jsonBody(t, map[string]any{"title": "Новое название"}))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch: код %d, тело %s", rec.Code, rec.Body.String())
@@ -418,7 +564,7 @@ func TestPatchMangaPartial(t *testing.T) {
 	}
 
 	// PATCH несуществующей — 404.
-	rec = doJSON(t, r, http.MethodPatch, "/admin-api/manga/999", access,
+	rec = doAuthJSON(t, r, http.MethodPatch, "/admin-api/manga/999", access,
 		jsonBody(t, map[string]any{"title": "x"}))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("patch 999: код %d, ожидался 404", rec.Code)
@@ -430,7 +576,7 @@ func TestDeleteMangaReturnsBody(t *testing.T) {
 	r, store := testServer(t)
 	access, _ := login(t, r)
 
-	rec := doJSON(t, r, http.MethodDelete, "/admin-api/manga/42", access, "")
+	rec := doAuthJSON(t, r, http.MethodDelete, "/admin-api/manga/42", access, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("delete: код %d, тело %s", rec.Code, rec.Body.String())
 	}
@@ -452,7 +598,7 @@ func TestDeleteMangaReturnsBody(t *testing.T) {
 	}
 
 	// Повторное удаление — 404.
-	rec = doJSON(t, r, http.MethodDelete, "/admin-api/manga/42", access, "")
+	rec = doAuthJSON(t, r, http.MethodDelete, "/admin-api/manga/42", access, "")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("повторный delete: код %d, ожидался 404", rec.Code)
 	}
@@ -475,10 +621,28 @@ func TestCreateMangaValidation(t *testing.T) {
 		{"битый JSON", "{oops", http.StatusBadRequest},
 	}
 	for _, tc := range cases {
-		rec := doJSON(t, r, http.MethodPost, "/admin-api/manga", access, tc.body)
+		rec := doAuthJSON(t, r, http.MethodPost, "/admin-api/manga", access, tc.body)
 		if rec.Code != tc.want {
 			t.Errorf("%s: код %d, ожидался %d", tc.name, rec.Code, tc.want)
 		}
+	}
+}
+
+// TestCreateMangaDuplicate — повторное создание той же (source_id, url) — 409.
+func TestCreateMangaDuplicate(t *testing.T) {
+	r, _ := testServer(t)
+	access, _ := login(t, r)
+
+	body := jsonBody(t, map[string]any{"source_id": 1, "url": "asura_2024", "title": "Дубль"})
+	rec := doAuthJSON(t, r, http.MethodPost, "/admin-api/manga", access, body)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("дубликат: код %d, ожидался 409, тело %s", rec.Code, rec.Body.String())
+	}
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	if err := parseJSON(rec.Body.String(), &errResp); err != nil || errResp.Error == "" {
+		t.Errorf("тело ошибки: %q, err = %v", rec.Body.String(), err)
 	}
 }
 

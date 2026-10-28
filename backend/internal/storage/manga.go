@@ -9,7 +9,12 @@ import (
 	"github.com/lib/pq"
 )
 
-var ErrMangaNotFound = errors.New("манга не найдена")
+var (
+	ErrMangaNotFound = errors.New("манга не найдена")
+	// ErrMangaDuplicate — нарушение уникальности (parse_source_id, url):
+	// такая манга у источника уже заведена.
+	ErrMangaDuplicate = errors.New("манга с таким url уже есть у этого источника")
+)
 
 type Manga struct {
 	ID                int64
@@ -174,9 +179,9 @@ type MangaFilter struct {
 	Offset            int
 }
 
-func (s *Store) ListManga(filter MangaFilter) ([]Manga, error) {
-	query := `SELECT ` + mangaColumns + ` ` + mangaFrom
-
+// mangaFilterConds собирает WHERE-условия фильтра манги (без LIMIT/OFFSET):
+// общие для выборки страниц (ListManga) и подсчёта (CountManga).
+func mangaFilterConds(filter MangaFilter) (string, []any) {
 	var conds []string
 	var args []any
 	if filter.SourceID != 0 {
@@ -194,9 +199,15 @@ func (s *Store) ListManga(filter MangaFilter) ([]Manga, error) {
 		args = append(args, filter.PublicationStatus)
 		conds = append(conds, fmt.Sprintf("m.publication_status = $%d", len(args)))
 	}
-	if len(conds) > 0 {
-		query += " WHERE " + strings.Join(conds, " AND ")
+	if len(conds) == 0 {
+		return "", args
 	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+func (s *Store) ListManga(filter MangaFilter) ([]Manga, error) {
+	conds, args := mangaFilterConds(filter)
+	query := `SELECT ` + mangaColumns + ` ` + mangaFrom + conds
 	query += " ORDER BY m.id"
 
 	if filter.Limit > 0 {
@@ -226,6 +237,19 @@ func (s *Store) ListManga(filter MangaFilter) ([]Manga, error) {
 	return results, rows.Err()
 }
 
+// CountManga возвращает число манг, подходящих под фильтр, без LIMIT/OFFSET —
+// всего для пагинатора «страница X из Y».
+func (s *Store) CountManga(filter MangaFilter) (int64, error) {
+	conds, args := mangaFilterConds(filter)
+	query := `SELECT count(*) ` + mangaFrom + conds
+
+	var total int64
+	if err := s.db.QueryRow(query, args...).Scan(&total); err != nil {
+		return 0, fmt.Errorf("ошибка подсчёта манг: %w", err)
+	}
+	return total, nil
+}
+
 func (s *Store) CreateManga(m Manga) (Manga, error) {
 	const query = `
 		INSERT INTO manga (parse_source_id, url, title, alt_titles, latest_chapter, chapters_count, publication_status, last_check_at)
@@ -236,10 +260,16 @@ func (s *Store) CreateManga(m Manga) (Manga, error) {
 		m.SourceID, m.URL, m.Title, m.AltTitles, m.LatestChapter, m.ChaptersCount, m.PublicationStatus,
 	))
 	if err != nil {
-		// Нарушение FK по parse_source_id — источника с таким id нет.
 		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code == "23503" {
-			return Manga{}, ErrSourceNotFound
+		if errors.As(err, &pqErr) {
+			// Нарушение FK по parse_source_id — источника с таким id нет.
+			if pqErr.Code == "23503" {
+				return Manga{}, ErrSourceNotFound
+			}
+			// Нарушение UNIQUE (parse_source_id, url) — дубликат карточки.
+			if pqErr.Code == "23505" {
+				return Manga{}, ErrMangaDuplicate
+			}
 		}
 		return Manga{}, fmt.Errorf("ошибка создания манги: %w", err)
 	}
