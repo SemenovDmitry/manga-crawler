@@ -110,6 +110,11 @@ type MangaList struct {
 	Total int64 `json:"total"`
 }
 
+// MangaListNoTotal defines model for MangaListNoTotal.
+type MangaListNoTotal struct {
+	Manga []Manga `json:"manga"`
+}
+
 // MangaUpdate Частичное обновление: отсутствующие поля не изменяются.
 type MangaUpdate struct {
 	AltTitles         *string            `json:"alt_titles,omitempty"`
@@ -228,6 +233,9 @@ type ServerInterface interface {
 	// SetChatUserEnabled Заблокировать/разблокировать пользователя
 	// (PATCH /chat-users/{chat_id}/enabled)
 	SetChatUserEnabled(c *gin.Context, chatId ChatID)
+	// ListChatUserSubscription Подписки пользователя
+	// (GET /chat-users/{chat_id}/user-subscription)
+	ListChatUserSubscription(c *gin.Context, chatId ChatID)
 	// ListManga Список манги
 	// (GET /manga)
 	ListManga(c *gin.Context, params ListMangaParams)
@@ -352,6 +360,31 @@ func (siw *ServerInterfaceWrapper) SetChatUserEnabled(c *gin.Context) {
 	}
 
 	siw.Handler.SetChatUserEnabled(c, chatId)
+}
+
+// ListChatUserSubscription operation middleware
+func (siw *ServerInterfaceWrapper) ListChatUserSubscription(c *gin.Context) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", c.Param("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter chat_id: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListChatUserSubscription(c, chatId)
 }
 
 // ListManga operation middleware
@@ -613,6 +646,7 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.POST(options.BaseURL+"/sources/:id/recrawl", wrapper.ResetSourceFullCrawl)
 	router.GET(options.BaseURL+"/chat-users", wrapper.ListChatUsers)
 	router.PATCH(options.BaseURL+"/chat-users/:chat_id/enabled", wrapper.SetChatUserEnabled)
+	router.GET(options.BaseURL+"/chat-users/:chat_id/user-subscription", wrapper.ListChatUserSubscription)
 	router.GET(options.BaseURL+"/manga", wrapper.ListManga)
 	router.POST(options.BaseURL+"/manga", wrapper.CreateManga)
 	router.DELETE(options.BaseURL+"/manga/:id", wrapper.DeleteManga)

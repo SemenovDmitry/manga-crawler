@@ -16,6 +16,19 @@ export function useChatUsers() {
   })
 }
 
+// Подписки одного чата: ключ с доменным chat_id.
+export function useChatUserSubscription(chatId: number) {
+  return useQuery({
+    queryKey: ["chat-users", chatId, "user-subscription"] as const,
+    queryFn: async () => {
+      const res = await api.GET("/chat-users/{chat_id}/user-subscription", {
+        params: { path: { chat_id: chatId } },
+      })
+      return unwrap(res)
+    },
+  })
+}
+
 // enabled=true в API соответствует !blocked в БД (ручка инвертирует).
 export function useSetChatUserEnabled() {
   const qc = useQueryClient()

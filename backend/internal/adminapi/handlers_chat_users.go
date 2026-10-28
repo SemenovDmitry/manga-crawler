@@ -43,6 +43,25 @@ func (s *Server) SetChatUserEnabled(c *gin.Context, chatID oapi.ChatID) {
 	c.JSON(http.StatusOK, toChatUserResponse(user))
 }
 
+func (s *Server) ListChatUserSubscription(c *gin.Context, chatID oapi.ChatID) {
+	if _, err := s.store.GetChatUser(chatID); err != nil {
+		respondStoreError(c, err)
+		return
+	}
+
+	manga, err := s.store.UserSubscriptions(chatID)
+	if err != nil {
+		abortInternal(c, err)
+		return
+	}
+
+	out := make([]oapi.Manga, 0, len(manga))
+	for _, m := range manga {
+		out = append(out, toMangaResponse(m))
+	}
+	c.JSON(http.StatusOK, oapi.MangaListNoTotal{Manga: out})
+}
+
 func toChatUserResponse(u storage.ChatUser) oapi.ChatUser {
 	return oapi.ChatUser{
 		ChatId:    u.ChatID,

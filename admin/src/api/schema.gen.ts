@@ -164,6 +164,26 @@ export interface paths {
         patch: operations["setChatUserEnabled"];
         trace?: never;
     };
+    "/chat-users/{chat_id}/user-subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Подписки пользователя
+         * @description Все подписки чата с данными манги, без пагинации (объём ограничен числом подписок чата).
+         */
+        get: operations["listChatUserSubscription"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/manga": {
         parameters: {
             query?: never;
@@ -272,6 +292,9 @@ export interface components {
         };
         ChatUserList: {
             users: components["schemas"]["ChatUser"][];
+        };
+        MangaListNoTotal: {
+            manga: components["schemas"]["Manga"][];
         };
         MangaCreate: {
             source_id: number;
@@ -565,6 +588,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatUser"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["Internal"];
+        };
+    };
+    listChatUserSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                chat_id: components["parameters"]["ChatID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Подписки */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MangaListNoTotal"];
                 };
             };
             400: components["responses"]["BadRequest"];

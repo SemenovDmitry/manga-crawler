@@ -61,6 +61,11 @@
     "yes": "yes",
     "no": "no"
   },
+  "userSubscription": {
+    "title": "Subscriptions of chat {{chatId}}",
+    "back": "Back",
+    "empty": "This user has no subscriptions"
+  },
   "manga": {
     "title": "Manga catalog",
     "newTitle": "New manga",
