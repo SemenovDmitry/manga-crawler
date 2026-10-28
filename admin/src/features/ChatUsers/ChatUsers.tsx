@@ -58,7 +58,7 @@ function ChatUserRow({ user }: { user: IChatUser }) {
       <TableCell>{user.is_active ? t("chatUsers.yes") : t("chatUsers.no")}</TableCell>
       <TableCell>
         <Switch
-          checked={!user.blocked}
+          checked={user.blocked}
           disabled={setEnabled.isPending}
           onChange={(e) => setEnabled.mutate({ chatId: user.chat_id, enabled: e.target.checked })}
         />
