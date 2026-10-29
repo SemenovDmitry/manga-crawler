@@ -34,7 +34,7 @@ export function UserSubscription({ chatId }: { chatId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={() => navigate({ to: "/chat-users" })}>
+        <Button variant="link" size="sm" onClick={() => navigate({ to: "/chat-users" })}>
           {t("userSubscription.back")}
         </Button>
       </div>

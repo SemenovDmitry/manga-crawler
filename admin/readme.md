@@ -63,10 +63,9 @@ cookie вместо `Authorization: Bearer` и JSON-тела, cookieAuth в сп
 1. **Каркас**: Vite-проект в `admin/`, Tailwind + shadcn, генератор клиента из
    OpenAPI-спеки (`pnpm gen:api`), dev-прокси, TanStack Router (дерево
    маршрутов + гарды), i18n-инициализация, Biome (линт + формат), `base: './'`.
-   Базовая тема: тёмная тёплая, коричневая («coffee») — за основу берётся
-   стандартная тёмная палитра shadcn с осветлёнными фонами (не чёрная, а
-   тёмно-коричневая с повышенной светлотой, нейтральные акценты заменяются на
-   тёплые). Токены размещаются в `@layer base` файла `globals.css`
+   Базовая тема: тёмная «Graphite» — нейтральный графит (не чёрный)
+   с приглушённым стальным синим акцентом. Токены размещаются в `@layer base`
+   файла `globals.css`
    (каскадные слои Tailwind), тёмная тема — дефолт (`html.dark` без
    переключателя на каркасе). Компоненты используют только
    семантические классы (`bg-background`, `text-muted-foreground`).
@@ -142,8 +141,8 @@ npm run dev      # Vite на :5173, прокси /admin-api → :8081
 
 - **Этап 0 (бэкенд)** — готов: cookie-auth, 409 на дубликат, `total` в списке
   манги; тесты зелёные.
-- **Этап 1 (каркас)** — готов: Vite + React 19 + Tailwind v4 (coffee-тёмная
-  тема в `@layer base`), shadcn-компоненты (button/card/input/badge),
+- **Этап 1 (каркас)** — готов: Vite + React 19 + Tailwind v4 (тёмная тема
+  «Graphite» в `@layer base`), shadcn-компоненты (button/card/input/badge),
   генератор клиента `gen:api`, TanStack Router (гард `_auth`, редиректы,
   404), i18n RU/EN, Biome, `base: './'`; `npm run build` зелёный.
 - **Этап 2 (аутентификация)** — готов: refresh-очередь при 401 (один refresh

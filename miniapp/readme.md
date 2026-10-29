@@ -1,1 +1,151 @@
-App for telegram
+# Telegram Mini App — план работ
+
+Статус: **утверждён, этап 1 не начат**. Стек зафиксирован — как в `admin/`
+(Vite + React 19 + TS strict + Tailwind v4 + shadcn + TanStack Query +
+i18next, без TanStack Router/Table/Hook Form — hash-роутинг, форм нет).
+
+## Роль Mini App в проекте
+
+Mini App — **основной интерфейс пользователя**: поиск манги, управление
+подписками, карточка манги. Команды бота (`/start`, `/find`, `/list`,
+`/help`) сохраняются как дублирующий функционал — удобны для тестирования и
+как запасной канал. Уведомления о новых главах по-прежнему рассылает бот.
+
+## Зафиксированные решения
+
+| Вопрос | Решение |
+| ------ | ------- |
+| Чтение глав | **Не входит** в MVP и в ближайшие этапы (чужие сайты, анти-бот, трафик) |
+| Подход | Поэтапно: сначала каркас, затем экраны |
+| Бэкенд | **Раздельные API**: отдельный процесс `cmd/miniapi` (:8082, `/mini-api`) — своя модель аутентификации (`initData` вместо admin-cookie) и контур безопасности. Обоснование: `miniapi` публичный (GitHub Pages ходит на него из браузера с CORS), тогда как `adminapi` остаётся приватным — фронт админки работает только локально, иногда через VPN, наружу не выставляется. Публичная экспозиция `miniapi` не должна открывать админский контур — разные процессы делают это невозможным по построению |
+| Хостинг | **Раздельный для фронтов.** GitHub Pages **этого же репозитория** отведена только miniapp: URL `SemenovDmitry.github.io/manga-crawler/`, Vite `base: '/manga-crawler/'`, CORS-origin `https://SemenovDmitry.github.io`. У Pages один сайт на репозиторий (корень фиксирован именем репо, workflow публикует `dist/` в корень артефакта — подпуть `/miniapp` в URL не нужен), поэтому `admin/` сюда не деплоится: на будущее у админки — **отдельный репозиторий со своей Pages** (напр. `SemenovDmitry.github.io/<admin-repo>/`) или другой хостинг; на одну Pages два фронта не совмещать |
+| Языки | RU + EN (i18next-подход, как в admin) |
+| Функциональный объём | Дублирование функционала бота: поиск (`/find`), мои подписки (`/list`), карточка манги, подписка/отписка, «кто я» (`/start`), справка (`/help`) |
+| Стек фронтенда | **Как в `admin/`**: Vite + React 19 + TS strict + Tailwind v4 + shadcn (компоненты и тема «Graphite» переиспользуются) + TanStack Query + i18next + Biome. Отличия от админки: без TanStack Router/Table/Hook Form — hash-роутинг руками, форм нет; Telegram SDK (`@telegram-apps/sdk-react`); lighter-бандл за счёт малого набора экранов |
+| Переиспользование UI | **Вендоринг, не импорты**: кросс-импортов `miniapp → admin` нет (два независимых Vite-проекта, свои деплой-циклы — сцеплять их нельзя). shadcn-компоненты и Tailwind-токены темы «Graphite» **копируются** из `admin/` в `miniapp/src/components/ui/` — это штатная модель shadcn («скопируй исходник себе»); далее код живёт независимо. Осознанная цена — ручная синхронизация правок; при её удорожании — опция будущего: workspace-пакет `packages/ui` (npm workspaces) |
+
+| Bot token | Продовый токен бота используется и для разработки (он же тестовый); `TELEGRAM_BOT_TOKEN` уже в `.env` — отдельный тестовый бот не заводится |
+
+## Осталось решить
+
+Открытых вопросов нет. Порог свежести `initData` фиксируется значением по
+умолчанию 24 ч (`MINIAPI_INITDATA_MAX_AGE`), может быть изменён без
+пересмотра плана.
+
+## Архитектура
+
+```
+Telegram WebView ── HTTPS ──> GitHub Pages (статика miniapp/)
+        │                            │
+        │ initData в заголовке       │ REST + CORS (origin github.io)
+        ▼                            ▼
+   t.me/bot/app  ────────────> cmd/miniapi (:8082, /mini-api)
+                                      │
+                                      ▼
+                              Postgres (общая БД)
+```
+
+- **Аутентификация:** фронт берёт `initData` из Telegram SDK и передаёт в
+  каждом запросе (заголовок `X-Telegram-Init-Data`). `miniapi` проверяет
+  HMAC-SHA256 (секрет = `HMAC_SHA256(bot_token, "WebAppData")`), свежесть
+  `auth_date` (порог ~24 ч), находит/создаёт пользователя в `chat_users`.
+  Без сессий и cookie — проверка на каждый запрос, stateless.
+- **CORS:** `miniapi` разрешает origin `https://SemenovDmitry.github.io`; cookies
+  нет, поэтому SameSite-проблем не существует.
+- **Роутинг:** hash-роутинг (`/#/manga/123`) — GitHub Pages не умеет
+  rewrite на `index.html`.
+- **Base path:** деплой в подпуть репозитория (`/manga-crawler/`) —
+  настраивается `base` в Vite.
+- **API URL:** в бандл через `VITE_API_BASE_URL` на этапе сборки.
+- **Env `miniapi`:** `MINIAPI_LISTEN` (напр. `:8082`),
+  `MINIAPI_ALLOWED_ORIGIN`, `TELEGRAM_BOT_TOKEN` (уже есть),
+  `MINIAPI_INITDATA_MAX_AGE`. В bot добавляется `MINIAPP_URL` для Menu
+  Button.
+
+## Этапы работ
+
+### Этап 1 — каркас miniapp (фронтенд)
+
+- Vite-проект в `miniapp/` на зафиксированном стеке (см. таблицу решений),
+  TS strict, Tailwind v4.
+- Подключение Telegram SDK: тема (`themeParams`), `initData`,
+  `BackButton`, viewport.
+- Dev-режим: mock `initData` (вне Telegram данных нет), Vite-прокси
+  `/mini-api → localhost:8082` (как в admin).
+- Каркас i18n: `ru.json` + `en.json`, ключи всегда парой.
+- Заглушки экранов: Поиск, Подписки, Карточка, Справка.
+- `miniapp/AGENTS.md`: правила нейминга, слоёв, i18n, проверки.
+
+Приёмка: `npm run dev` показывает заглушки в браузере с mock-данными;
+`npx tsc --noEmit`, линтер, `vite build` — зелёные.
+
+### Этап 2 — cmd/miniapi (бэкенд)
+
+- Спека `backend/docs/openapi-miniapp.yaml` (OpenAPI 3.0.3), эндпоинты:
+  - `GET /mini-api/me` — текущий пользователь (из initData);
+  - `GET /mini-api/manga/search?q=` — поиск по названию;
+  - `GET /mini-api/manga/{id}` — карточка манги + подписан ли я;
+  - `GET /mini-api/subscriptions` — мои подписки (аналог `/list`);
+  - `PUT /mini-api/subscriptions/{mangaId}` / `DELETE` — подписка/отписка;
+  - `GET /mini-api/help` — статический текст справки (или без API, из i18n).
+- oapi-codegen по образцу `internal/adminapi` (генерат не править руками).
+- Middleware валидации `initData` + привязка к `chat_users`.
+- Переиспользование `internal/storage`: `Subscribe`, `Unsubscribe`,
+  `UserSubscriptions` уже есть; при необходимости добавить
+  `SearchManga(query)` (поиск для `/find` сейчас в `internal/telegram` —
+  вынести общий запрос в storage). Миграций, по-видимому, не требуется.
+- Запись в корневом `docker compose` и `backend/infrastructure.md`.
+
+Приёмка: curl с валидным/невалидным `initData` — 200/401; спека и генерат
+в коммите вместе.
+
+### Этап 3 — экраны MVP
+
+- Поиск: поле + debounce-запрос, список карточек-строк.
+- Подписки: список с обложкой/статусом, свайп или кнопка отписки,
+  optimistic update через TanStack Query.
+- Карточка манги: обложка, статус публикации, источник, главы,
+  кнопка «Подписаться/Отписаться».
+- Справка: статичный экран RU/EN.
+- Skeleton-загрузка, пустые состояния, ошибки — в теме Telegram
+  (`themeParams`, поддержка светлой/тёмной).
+
+Приёмка: полный сценарий в dev-режиме с mock-данными; `tsc`/линтер/build
+зелёные; ключи i18n RU+EN синхронны.
+
+### Этап 4 — интеграция с ботом
+
+- Menu Button бота → URL мини-аппа (`MINIAPP_URL`).
+- `web_app`-кнопка в результатах `/find` («Открыть в приложении»).
+- Deep links `?startapp=<manga_id>` → мини-апп открывает карточку;
+  `miniapi` отдаёт мангу по id без лишнего поиска.
+- Тексты бота упоминают мини-апп (`/help`).
+
+Приёмка: на устройстве кнопка меню открывает приложение; deep link
+открывает карточку конкретной манги.
+
+### Этап 5 — деплой GitHub Pages
+
+- GitHub Actions: workflow из `miniapp/` → `npm ci && npm run build` →
+  публикация `dist/` в корень артефакта Pages.
+- Vite `base: '/manga-crawler/'`, `VITE_API_BASE_URL` на прод.
+- CORS-настройка `MINIAPI_ALLOWED_ORIGIN` на прод-значение.
+- Наружу выставляется **только** `miniapi`; `adminapi` остаётся
+  локальным/VPN-доступом, как сейчас, в публичную экспозицию не попадает.
+- В BotFather Menu Button = продовый URL.
+
+Приёмка: приложение открывается с продового URL на устройстве, поиск и
+подписки работают против продового `miniapi`.
+
+### Этап 6 — сдача
+
+- Обновить корневой `AGENTS.md` (строка miniapp) и `backend/README.md`.
+- Ручной чек-лист: RU/EN, тёмная/светлая тема, iOS + Android + Desktop
+  Telegram, оффлайн-ошибки, истёкший `initData` (переоткрытие).
+
+## Что не входит (осознанно)
+
+- Чтение глав и любые картинки-страницы.
+- Публичные страницы с OG-разметкой.
+- Каталог целиком/бесконечная лента (поиск + подписки покрывают сценарий).
+- Push-уведомления из мини-аппа (уведомляет бот, как и сейчас).

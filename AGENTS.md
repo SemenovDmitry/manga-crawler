@@ -52,7 +52,7 @@
 SPA над `cmd/adminapi`; контракт API — `backend/docs/openapi.yaml`.
 
 - **Стек**: Vite + React 19 + TypeScript strict, Tailwind CSS v4 +
-  shadcn-компоненты (в репозитории, тёмная «coffee»-тема), TanStack Router
+  shadcn-компоненты (в репозитории, тёмная «Graphite»-тема), TanStack Router
   (файл-роутинг, гарды), TanStack Query, TanStack Table, react-hook-form +
   zod, react-i18next (RU базовый + EN), Biome.
 - **API-клиент**: генерируется `npm run gen:api` из OpenAPI-спеки бэкенда в
