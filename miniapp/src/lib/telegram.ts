@@ -15,7 +15,7 @@ import {
   isTMA,
   mockTelegramEnv,
   mountBackButton,
-  mountMiniApp,
+  mountMiniAppSync,
   mountThemeParamsSync,
   mountViewport,
 } from "@telegram-apps/sdk-react"
@@ -120,15 +120,14 @@ export function bootstrapTelegram(): boolean {
       bindThemeParamsCssVars()
     }
   }
-  // Асинхронные монтирования: CSS-переменные и expand привязываем в .then —
-  // сразу после запуска mount компонент ещё не смонтирован, и isAvailable()
-  // у bind*/expand* вернёт false.
-  if (mountMiniApp.isAvailable()) {
-    void mountMiniApp().then(() => {
-      if (bindMiniAppCssVars.isAvailable()) {
-        bindMiniAppCssVars()
-      }
-    })
+  // Асинхронное монтирование viewport: CSS-переменные и expand привязываем
+  // в .then — сразу после запуска mount компонент ещё не смонтирован, и
+  // isAvailable() у bind*/expand* вернёт false.
+  if (mountMiniAppSync.isAvailable()) {
+    mountMiniAppSync()
+    if (bindMiniAppCssVars.isAvailable()) {
+      bindMiniAppCssVars()
+    }
   }
   if (mountViewport.isAvailable()) {
     void mountViewport().then(() => {

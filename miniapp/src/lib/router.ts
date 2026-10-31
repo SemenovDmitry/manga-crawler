@@ -16,6 +16,8 @@ export const HOME_ROUTE: Route = { name: "subscriptions" }
 export function parseHash(rawHash: string): Route {
   const segments = rawHash.replace(/^#/, "").split("/").filter(Boolean)
   switch (segments[0]) {
+    case "search":
+      return { name: "search" }
     case "subscriptions":
       return { name: "subscriptions" }
     case "help":
