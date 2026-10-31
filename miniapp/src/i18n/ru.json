@@ -1,0 +1,46 @@
+{
+  "app": {
+    "title": "Manga Crawler"
+  },
+  "nav": {
+    "search": "Поиск",
+    "subscriptions": "Подписки",
+    "help": "Справка"
+  },
+  "search": {
+    "title": "Поиск манги",
+    "placeholder": "Введите название…",
+    "empty": "Ничего не найдено",
+    "emptyQuery": "Начните вводить название манги"
+  },
+  "subscriptions": {
+    "title": "Мои подписки",
+    "empty": "Подписок пока нет",
+    "unsubscribe": "Отписаться"
+  },
+  "manga": {
+    "subscribe": "Подписаться",
+    "unsubscribe": "Отписаться",
+    "subscribed": "Вы подписаны на обновления",
+    "notFound": "Манга не найдена"
+  },
+  "help": {
+    "title": "Справка"
+  },
+  "common": {
+    "loading": "Загрузка…",
+    "retry": "Повторить",
+    "back": "Назад",
+    "language": "Язык"
+  },
+  "errors": {
+    "notFound": "Не найдено",
+    "server": "Ошибка сервера, попробуйте позже",
+    "network": "Нет связи с сервером",
+    "unauthorized": "Не удалось подтвердить личность — переоткройте приложение",
+    "unknown": "Неизвестная ошибка"
+  },
+  "placeholder": {
+    "inProgress": "Экран появится на этапе {{stage}}"
+  }
+}
