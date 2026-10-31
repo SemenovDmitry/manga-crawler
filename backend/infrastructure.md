@@ -18,6 +18,7 @@ go mod tidy - Вызывать после изменения зависимой�
 | bot | cmd/bot | 8080 | Telegram-бот, рассылка уведомлений |
 | crawler | cmd/crawler | — | Обход источников |
 | adminapi | cmd/adminapi | 8081 | HTTP API админ-панели (см. ниже) |
+| miniapi | cmd/miniapi | 8082 | HTTP API мини-аппа Telegram (см. ниже) |
 
 Миграции зашиты в бинарники (goose) и применяются каждым процессом при старте
 под advisory-блокировкой — порядок запуска контейнеров не важен.
@@ -26,7 +27,7 @@ go mod tidy - Вызывать после изменения зависимой�
 
 ## Admin API — запуск
 
-Контракт: `docs/openapi.yaml` (OpenAPI 3.0.3) — единый источник правды.
+Контракт: `docs/openapi-admin.yaml` (OpenAPI 3.0.3) — единый источник правды.
 Из него oapi-codegen генерирует Go-типы и интерфейс хендлеров:
 `internal/adminapi/oapi/api.gen.go` (генерируется, не править руками).
 Регенерация после изменения схемы:
@@ -158,6 +159,83 @@ Docker (вместе с ботом и краулером; сервис adminapi 
 тесты (проверки статусов, структуры ответов, ротации refresh, частичности
 PATCH) — результат во вкладке Test Results.
 
-Альтернатива: импортировать `docs/openapi.yaml` как OpenAPI — Postman
+Альтернатива: импортировать `docs/openapi-admin.yaml` как OpenAPI — Postman
 соберёт коллекцию без тестов, но с актуальными схемами. Из той же схемы
 позже генерируется TS-клиент для admin-фронтенда (Orval).
+
+---
+
+## Mini API — запуск (cmd/miniapi)
+
+Публичный API мини-аппа Telegram: поиск манги, подписки. В отличие от
+adminapi, выставляется наружу (мини-апп на GitHub Pages ходит на него из
+браузера), поэтому вынесен в отдельный процесс — публичная экспозиция
+не открывает админский контур.
+
+Контракт: `docs/openapi-miniapp.yaml` (OpenAPI 3.0.3) — единый источник
+правды. Генерат: `internal/miniapi/oapi/api.gen.go` (не править руками):
+
+    go generate ./internal/miniapi/...
+
+Аутентификация — stateless: каждый запрос несёт заголовок
+`X-Telegram-Init-Data` с сырым initData из Telegram SDK. Сервер проверяет
+HMAC-SHA256 (секрет — `HMAC_SHA256(bot_token, "WebAppData")`), свежесть
+`auth_date` (`MINIAPI_INITDATA_MAX_AGE`, по умолчанию 24 ч) и создаёт/
+обновляет пользователя в `chat_users`. Cookie и сессий нет; CORS-origin —
+`MINIAPI_ALLOWED_ORIGIN` (прод: `https://SemenovDmitry.github.io`; в dev
+пусто — фронт ходит через Vite-прокси).
+
+### Переменные (.env)
+
+Обязательна только `TELEGRAM_BOT_TOKEN` (уже есть — та же, что у бота);
+остальные опциональны (см. .env.example):
+
+    MINIAPI_LISTEN=:8082
+    MINIAPI_ALLOWED_ORIGIN=
+    # MINIAPI_INITDATA_MAX_AGE=24h
+
+### Запуск
+
+Docker:
+
+    docker compose up -d --build miniapi
+    # miniapi: http://localhost:8082/mini-api/...
+    docker compose logs -f miniapi
+
+Локально (нужен доступный Postgres из .env):
+
+    cd backend
+    go run ./cmd/miniapi
+
+### Проверка (curl)
+
+Квиток initData подписывается бот-токеном — для ручного теста его можно
+вычислить (bash):
+
+    TOKEN="ваш TELEGRAM_BOT_TOKEN"
+    USER='{"id":777000001,"first_name":"Dev","username":"dev_user","language_code":"ru"}'
+    AUTH_DATE=$(date +%s)
+    DCS="auth_date=$AUTH_DATE
+    user=$USER"
+    SECRET=$(printf 'WebAppData' | openssl dgst -sha256 -mac HMAC -macopt "key:$TOKEN" -binary | xxd -p -c 64)
+    HASH=$(printf '%s' "$DCS" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$SECRET" | awk '{print $2}')
+    INITDATA="auth_date=$AUTH_DATE&user=$(printf %s "$USER" | jq -sRr @uri)&hash=$HASH"
+
+    # без заголовка → 401
+    curl -i http://localhost:8082/mini-api/me
+    # с битым hash → 401
+    curl -i http://localhost:8082/mini-api/me -H "X-Telegram-Init-Data: auth_date=$AUTH_DATE&user=...&hash=bad"
+    # с валидным квитком → 200 и данные пользователя
+    curl -s http://localhost:8082/mini-api/me -H "X-Telegram-Init-Data: $INITDATA"
+
+    # поиск, карточка, подписки
+    curl -s "http://localhost:8082/mini-api/manga/search?q=<название>" -H "X-Telegram-Init-Data: $INITDATA"
+    curl -s http://localhost:8082/mini-api/manga/42 -H "X-Telegram-Init-Data: $INITDATA"
+    curl -s -X PUT http://localhost:8082/mini-api/subscriptions/42 -H "X-Telegram-Init-Data: $INITDATA"
+    curl -s http://localhost:8082/mini-api/subscriptions -H "X-Telegram-Init-Data: $INITDATA"
+    curl -s -X DELETE http://localhost:8082/mini-api/subscriptions/42 -H "X-Telegram-Init-Data: $INITDATA"
+
+Коды ответов: 200 — успех (PUT/DELETE отдают состояние подписки),
+400 — неверные параметры (битый mangaId, limit вне диапазона),
+401 — нет/битый/просроченный initData или неверная подпись,
+404 — манга не найдена, 500 — внутренняя ошибка (детали в логах).

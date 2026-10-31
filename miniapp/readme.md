@@ -1,8 +1,10 @@
 # Telegram Mini App — план работ
 
-Статус: **этап 1 (каркас) выполнен** — `npx tsc --noEmit`, линтер и
-`vite build` зелёные, заглушки экранов работают в dev-режиме с mock-данными.
-Далее — этап 2 (`cmd/miniapi`). Стек зафиксирован — как в `admin/`
+Статус: **этапы 1 (каркас) и 2 (cmd/miniapi) выполнены** — приёмки зелёные
+(этап 1: `tsc`/линтер/`vite build` + dev с mock-данными; этап 2: curl с
+валидным/невалидным initData → 200/401). Контракт мини-аппа —
+`backend/docs/openapi-miniapp.yaml`. Далее — этап 3 (экраны MVP). Стек
+зафиксирован — как в `admin/`
 (Vite + React 19 + TS strict + Tailwind v4 + shadcn + TanStack Query +
 i18next, без TanStack Router/Table/Hook Form — hash-роутинг, форм нет).
 

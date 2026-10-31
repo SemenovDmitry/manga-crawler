@@ -1,4 +1,4 @@
-# oapi-codegen: типы + gin-интерфейс из docs/openapi.yaml.
+# oapi-codegen: типы + gin-интерфейс из docs/openapi-admin.yaml.
 # Регенерация: go generate ./internal/adminapi/... (пути — относительно cfg.yaml)
 package: oapi
 generate:

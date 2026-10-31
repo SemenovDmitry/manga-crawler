@@ -11,10 +11,10 @@ import (
 )
 
 // TestRoutesMatchOpenAPI — контрактный тест: каждый path+method из
-// docs/openapi.yaml обязан быть зарегистрирован в роутере newEngine.
+// docs/openapi-admin.yaml обязан быть зарегистрирован в роутере newEngine.
 // Не даёт добавить эндпоинт в схему и забыть про роут (и наоборот).
 func TestRoutesMatchOpenAPI(t *testing.T) {
-	const schemaPath = "../../docs/openapi.yaml"
+	const schemaPath = "../../docs/openapi-admin.yaml"
 
 	schema, err := openapi3.NewLoader().LoadFromFile(schemaPath)
 	if err != nil {
@@ -77,9 +77,9 @@ func testConfig() Config {
 // testBcryptHash — bcrypt("test-password"), cost 10.
 const testBcryptHash = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
 
-// schemaPathsInSync — страховка от переименования docs/openapi.yaml.
+// schemaPathsInSync — страховка от переименования docs/openapi-admin.yaml.
 func TestOpenAPISchemaFileExists(t *testing.T) {
-	if _, err := os.Stat(filepath.Join("..", "..", "docs", "openapi.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join("..", "..", "docs", "openapi-admin.yaml")); err != nil {
 		t.Fatalf("схема контракта недоступна: %v", err)
 	}
 }

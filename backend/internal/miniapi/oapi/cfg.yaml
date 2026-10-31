@@ -1,0 +1,7 @@
+# oapi-codegen: типы + gin-интерфейс из docs/openapi-miniapp.yaml.
+# Регенерация: go generate ./internal/miniapi/... (пути — относительно cfg.yaml)
+package: oapi
+generate:
+  models: true          # типы схем: User, Manga, MangaDetail, ...
+  gin-server: true      # ServerInterface + RegisterHandlers (контракт роутов)
+output: api.gen.go

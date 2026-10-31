@@ -65,7 +65,7 @@
 ## Слой API (`src/api`)
 
 - Типы и пути запросов — только из `schema.gen.ts` (генерируется
-  `npm run gen:api` из `backend/docs/openapi.yaml`). Ручные интерфейсы,
+  `npm run gen:api` из `backend/docs/openapi-admin.yaml`). Ручные интерфейсы,
   дублирующие схему, запрещены.
 - Ответы через `unwrap()`; ошибки — `ApiError` со статусом. Прямой `fetch`
   вне `client.ts`/`refresh.ts` не используется.

@@ -31,7 +31,7 @@
   добавляется INSERT-ом в `sources`, новый движок — реализацией
   `SourceDriver` + case в `internal/crawler/registry.go`.
 - **`cmd/adminapi`** — HTTP API админ-панели (:8081, префикс `/admin-api`).
-  Контракт — `docs/openapi.yaml` (OpenAPI 3.0.3), из него oapi-codegen
+  Контракт — `docs/openapi-admin.yaml` (OpenAPI 3.0.3), из него oapi-codegen
   генерирует `internal/adminapi/oapi/api.gen.go` (не править руками;
   регенерация — `go generate ./internal/adminapi/...`).
 - **`internal/storage`** — доступ к Postgres, миграции goose в
@@ -49,7 +49,7 @@
 
 ## admin/ — веб-админ-панель
 
-SPA над `cmd/adminapi`; контракт API — `backend/docs/openapi.yaml`.
+SPA над `cmd/adminapi`; контракт API — `backend/docs/openapi-admin.yaml`.
 
 - **Стек**: Vite + React 19 + TypeScript strict, Tailwind CSS v4 +
   shadcn-компоненты (в репозитории, тёмная «Graphite»-тема), TanStack Router
@@ -81,7 +81,7 @@ SPA над `cmd/adminapi`; контракт API — `backend/docs/openapi.yaml`.
 
 ## Связи между проектами
 
-- `admin/` зависит от `backend/docs/openapi.yaml`: изменили спеку в бэкенде —
+- `admin/` зависит от `backend/docs/openapi-admin.yaml`: изменили спеку в бэкенде —
   перегенерируйте клиент админки (`npm run gen:api`).
 - `adminapi` (бэкенд) и админ-панель (фронтенд) — единый контракт, cookie-auth
   с `Path=/admin-api`, dev-прокси Vite вместо CORS.

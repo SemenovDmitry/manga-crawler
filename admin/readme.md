@@ -1,7 +1,7 @@
 # Админ-панель manga-crawler
 
 Веб-интерфейс над `cmd/adminapi` (Go/gin, `:8081`, префикс `/admin-api`).
-Контракт API — [backend/docs/openapi.yaml](../backend/docs/openapi.yaml):
+Контракт API — [backend/docs/openapi-admin.yaml](../backend/docs/openapi-admin.yaml):
 auth (login / refresh-ротация / logout), sources, chat-users, manga (CRUD + поиск).
 
 ## Стек
@@ -12,7 +12,7 @@ auth (login / refresh-ротация / logout), sources, chat-users, manga (CRUD
 | UI             | shadcn/ui + Tailwind CSS                              | компоненты в репозитории, полный контроль, минимальный бандл                                                                                             |
 | Таблицы        | TanStack Table (headless)                             | сортировка/пагинация под себя, стили shadcn                                                                                                              |
 | Данные         | TanStack Query                                        | кеш, рефетч, состояние загрузки/ошибок                                                                                                                   |
-| API-клиент     | генерация из `docs/openapi.yaml` (openapi-typescript) | единый источник правды с бэкендом, типобезопасность                                                                                                      |
+| API-клиент     | генерация из `docs/openapi-admin.yaml` (openapi-typescript) | единый источник правды с бэкендом, типобезопасность                                                                                                      |
 | i18n           | react-i18next, типизированные ключи                   | RU (базовый) + EN, JSON-словари                                                                                                                          |
 | Валидация форм | react-hook-form + zod                                 | схемы переиспользуются для create/update                                                                                                                 |
 | Роутинг        | TanStack Router                                       | типизированные маршруты, search-параметры с zod-валидацией (фильтры таблицы манги живут в URL), `beforeLoad`-гарды, нативная интеграция с TanStack Query |
@@ -43,7 +43,7 @@ cookie вместо `Authorization: Bearer` и JSON-тела, cookieAuth в сп
 ## Этапы
 
 Каждый этап привязан к операциям API по `operationId` из
-[backend/docs/openapi.yaml](../backend/docs/openapi.yaml) — схемы запросов и
+[backend/docs/openapi-admin.yaml](../backend/docs/openapi-admin.yaml) — схемы запросов и
 ответов не дублируются здесь, они приходят из генерации клиента.
 
 0. **Правки бэкенда** (делаются до фронтенда этапов 2–4):
@@ -116,7 +116,7 @@ cookie вместо `Authorization: Bearer` и JSON-тела, cookieAuth в сп
 ```bash
 cd admin
 npm install      # см. примечание про pnpm ниже
-npm run gen:api  # типы клиента из ../backend/docs/openapi.yaml
+npm run gen:api  # типы клиента из ../backend/docs/openapi-admin.yaml
 npm run dev      # Vite на :5173, прокси /admin-api → :8081
 ```
 

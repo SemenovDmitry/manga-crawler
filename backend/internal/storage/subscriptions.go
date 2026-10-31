@@ -38,6 +38,18 @@ func (s *Store) Unsubscribe(chatID, mangaID int64) (bool, error) {
 	return affected > 0, nil
 }
 
+// IsSubscribed сообщает, подписан ли чат на мангу.
+func (s *Store) IsSubscribed(chatID, mangaID int64) (bool, error) {
+	const query = `SELECT EXISTS (SELECT 1 FROM subscriptions WHERE chat_id = $1 AND manga_id = $2)`
+
+	var subscribed bool
+	if err := s.db.QueryRow(query, chatID, mangaID).Scan(&subscribed); err != nil {
+		return false, fmt.Errorf("ошибка проверки подписки чата %d на мангу %d: %w", chatID, mangaID, err)
+	}
+
+	return subscribed, nil
+}
+
 // UserSubscriptions возвращает все подписки чата с данными о манге.
 func (s *Store) UserSubscriptions(chatID int64) ([]Manga, error) {
 	query := `SELECT ` + mangaColumns + `

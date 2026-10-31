@@ -9,7 +9,7 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/adminapi/oapi"
 )
 
-// Server реализует контракт oapi.ServerInterface из docs/openapi.yaml.
+// Server реализует контракт oapi.ServerInterface из docs/openapi-admin.yaml.
 var _ oapi.ServerInterface = (*Server)(nil)
 
 type Server struct {

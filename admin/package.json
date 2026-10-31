@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "gen:api": "openapi-typescript ../backend/docs/openapi.yaml -o src/api/schema.gen.ts",
+    "gen:api": "openapi-typescript ../backend/docs/openapi-admin.yaml -o src/api/schema.gen.ts",
     "check": "biome check .",
     "check:write": "biome check --write .",
     "lint": "npx tsc --noEmit && pnpm check"

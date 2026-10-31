@@ -4,7 +4,7 @@ import { emitUnauthorized } from "./authEvents"
 import { refreshSession } from "./refresh"
 import type { paths } from "./schema.gen"
 
-// Клиент openapi-fetch: типы запросов/ответов выводятся из docs/openapi.yaml
+// Клиент openapi-fetch: типы запросов/ответов выводятся из docs/openapi-admin.yaml
 // (файл генерируется `npm run gen:api`). Cookie браузер добавляет сам —
 // токены в JS не живут. same-origin: в dev это прокси Vite.
 //
