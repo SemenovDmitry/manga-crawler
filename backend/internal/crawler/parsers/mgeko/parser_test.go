@@ -195,7 +195,7 @@ func TestLoadChapters(t *testing.T) {
 `
 
 	var requested []string
-	load := func(ctx context.Context, rawURL string) ([]byte, error) {
+	load := func(ctx context.Context, rawURL string, headers ...parsers.ExtraHeader) ([]byte, error) {
 		requested = append(requested, rawURL)
 		return []byte(allChaptersPage), nil
 	}
@@ -223,7 +223,7 @@ func TestLoadChapters(t *testing.T) {
 // Пустой список на all-chapters — ошибка (карточку она не отменяет,
 // но в лог должно попасть диагностическое сообщение).
 func TestLoadChaptersEmpty(t *testing.T) {
-	load := func(ctx context.Context, rawURL string) ([]byte, error) {
+	load := func(ctx context.Context, rawURL string, headers ...parsers.ExtraHeader) ([]byte, error) {
 		return []byte("<html><body>no chapters</body></html>"), nil
 	}
 
@@ -242,7 +242,7 @@ func TestLoadChaptersEmpty(t *testing.T) {
 // сохранит, а лог покажет причину.
 func TestLoadChaptersNetworkError(t *testing.T) {
 	netErr := errors.New("connection reset")
-	load := func(ctx context.Context, rawURL string) ([]byte, error) {
+	load := func(ctx context.Context, rawURL string, headers ...parsers.ExtraHeader) ([]byte, error) {
 		return nil, netErr
 	}
 

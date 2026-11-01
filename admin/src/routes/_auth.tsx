@@ -38,7 +38,7 @@ function AuthLayout() {
   }
 
   return (
-    <div className="min-h-svh">
+    <div>
       <header className="border-b bg-sidebar">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
           <nav className="flex items-center gap-4 text-sm">
@@ -48,7 +48,7 @@ function AuthLayout() {
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <LocaleSwitch />
-            <Button variant="ghost" size="sm" onClick={onLogout}>
+            <Button variant="outline" size="sm" onClick={onLogout}>
               {t("nav.logout")}
             </Button>
           </div>

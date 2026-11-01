@@ -1,8 +1,8 @@
 // Package oapi — сгенерированный контракт Admin API.
 //
-// Файл api.gen.go создан утилитой oapi-codegen из docs/openapi.yaml,
+// Файл api.gen.go создан утилитой oapi-codegen из docs/openapi-admin.yaml,
 // вручную его не править: менять схему и перегенерировать командой
 // go generate ./internal/adminapi/...
 package oapi
 
-//go:generate go tool oapi-codegen -config cfg.yaml ../../../docs/openapi.yaml
+//go:generate go tool oapi-codegen -config cfg.yaml ../../../docs/openapi-admin.yaml

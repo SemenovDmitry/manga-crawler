@@ -240,6 +240,32 @@ paths:
         '500':
           $ref: '#/components/responses/Internal'
 
+  /chat-users/{chat_id}/user-subscription:
+    get:
+      tags: [chat-users]
+      operationId: listChatUserSubscription
+      summary: Подписки пользователя
+      description: >
+        Все подписки чата с данными манги, без пагинации (объём ограничен
+        числом подписок чата).
+      parameters:
+        - $ref: '#/components/parameters/ChatID'
+      responses:
+        '200':
+          description: Подписки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MangaListNoTotal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
   /manga:
     get:
       tags: [manga]
@@ -645,6 +671,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ChatUser'
+
+    MangaListNoTotal:
+      type: object
+      required: [manga]
+      properties:
+        manga:
+          type: array
+          items:
+            $ref: '#/components/schemas/Manga'
 
     MangaCreate:
       type: object

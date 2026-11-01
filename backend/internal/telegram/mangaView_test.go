@@ -34,7 +34,7 @@ func TestFindResultsKeyboard(t *testing.T) {
 		{ID: 2, Title: "Вторая"},
 	}
 
-	keyboard := findResultsKeyboard(results)
+	keyboard := findResultsKeyboard(results, "")
 
 	if len(keyboard.InlineKeyboard) != len(results) {
 		t.Fatalf("кнопок %d, ожидалось %d", len(keyboard.InlineKeyboard), len(results))
@@ -57,6 +57,45 @@ func TestFindResultsKeyboard(t *testing.T) {
 		if row[0].Text == "" {
 			t.Errorf("пустой текст кнопки в ряду %d", i)
 		}
+	}
+}
+
+func TestFindResultsKeyboardWithMiniApp(t *testing.T) {
+	results := []storage.Manga{{ID: 1, Title: "Первая"}}
+
+	keyboard := findResultsKeyboard(results, "https://SemenovDmitry.github.io/manga-crawler/")
+
+	if len(keyboard.InlineKeyboard) != len(results)+1 {
+		t.Fatalf("рядов %d, ожидалось %d", len(keyboard.InlineKeyboard), len(results)+1)
+	}
+
+	last := keyboard.InlineKeyboard[len(keyboard.InlineKeyboard)-1]
+	if len(last) != 1 {
+		t.Fatalf("в последнем ряду кнопок %d, ожидалась 1", len(last))
+	}
+	if last[0].WebApp == nil || last[0].WebApp.URL != "https://SemenovDmitry.github.io/manga-crawler/" {
+		t.Errorf("web_app = %+v, ожидался URL мини-аппа", last[0].WebApp)
+	}
+	if last[0].CallbackData != "" {
+		t.Errorf("у web_app-кнопки не должно быть callback_data: %q", last[0].CallbackData)
+	}
+}
+
+func TestMiniAppButtonRow(t *testing.T) {
+	if row := miniAppButtonRow(""); row != nil {
+		t.Errorf("пустой URL должен давать nil, получено %+v", row)
+	}
+
+	const url = "https://example.org/app/"
+	row := miniAppButtonRow(url)
+	if len(row) != 1 {
+		t.Fatalf("кнопок %d, ожидалась 1", len(row))
+	}
+	if row[0].WebApp == nil || row[0].WebApp.URL != url {
+		t.Errorf("web_app = %+v, ожидался %q", row[0].WebApp, url)
+	}
+	if row[0].Text == "" {
+		t.Error("пустой текст web_app-кнопки")
 	}
 }
 

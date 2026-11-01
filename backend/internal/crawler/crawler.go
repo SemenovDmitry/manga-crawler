@@ -33,11 +33,15 @@ type Crawler struct {
 	gate     pauseGate // пауза фонового полного обхода на время инкрементального
 	full     fullCrawlTracker
 
-	// cardFailures — текущая серия ошибок парсинга карточек по источникам
-	// (под failMu). Успешная карточка сбрасывает серию; порог
-	// (Config.CardFailureLimit) отключает источник (processor.go).
+	// cardFailures — текущая серия ошибок обработки карточек (любых) по
+	// источникам (под failMu). Успешная карточка сбрасывает серию; порог
+	// (Config.CardFailureLimit) останавливает проход, а серия на ошибке
+	// парсинга отключает источник (processor.go).
+	// stopNotified — источники, которым уже ушло сообщение об остановке
+	// прохода: одно на эпизод недоступности, сбрасывается успешной карточкой.
 	failMu       sync.Mutex
 	cardFailures map[int]int
+	stopNotified map[int]bool
 }
 
 func New(store repo, cfg Config) *Crawler {
@@ -61,6 +65,7 @@ func New(store repo, cfg Config) *Crawler {
 		notify:       NewQueueNotifier(store, ownerChatID),
 		badPages:     badPageDumper{dir: cfg.BadPagesDir},
 		cardFailures: make(map[int]int),
+		stopNotified: make(map[int]bool),
 	}
 	c.services, _ = c.notify.(ServiceNotifier)
 	c.sitemap = newSitemapLister(fetch, &c.gate)
@@ -284,10 +289,12 @@ func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) 
 
 	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 		var disabledErr errSourceDisabled
-		if errors.As(err, &disabledErr) {
-			// Источник отключён автоматически: уже уведомлены, не сбой.
+		var abortedErr errPassAborted
+		switch {
+		case errors.As(err, &disabledErr), errors.As(err, &abortedErr):
+			// Автоотключение или остановка серии: уже залогировано, не сбой.
 			log.Printf("[%s] %s", src.source.Name, err)
-		} else {
+		default:
 			log.Printf("[%s] Ошибка обхода: %v", src.source.Name, err)
 		}
 	}
@@ -305,11 +312,11 @@ func (c *Crawler) crawlSource(ctx context.Context, src *crawlTarget, full bool) 
 // драйвером (parsers.ChapterLoader): Fetcher.Page плюс пауза вежливости
 // перед каждым запросом, чтобы API источника не нагружался.
 func (c *Crawler) pacedPageLoader() parsers.PageLoader {
-	return func(ctx context.Context, rawURL string) ([]byte, error) {
+	return func(ctx context.Context, rawURL string, extraHeaders ...parsers.ExtraHeader) ([]byte, error) {
 		if err := c.pace.wait(ctx); err != nil {
 			return nil, err
 		}
-		return c.fetch.Page(ctx, rawURL)
+		return c.fetch.Page(ctx, rawURL, extraHeaders...)
 	}
 }
 
@@ -364,6 +371,11 @@ func (c *Crawler) crawlSourceFull(ctx context.Context, src crawlTarget) error {
 		log.Printf("[%s] Из каталога добавлено манг, которых не было в sitemap: %d", src.source.Name, catalogRes.processed)
 	}
 
+	logCardFailures(src.source.Name, "полном обходе",
+		res.processed+res.failed+catalogRes.processed+catalogRes.failed,
+		res.failed+catalogRes.failed,
+	)
+
 	return nil
 }
 
@@ -377,14 +389,30 @@ func (c *Crawler) crawlSourceUpdates(ctx context.Context, src crawlTarget) error
 		return fmt.Errorf("ошибка получения устаревших подписок: %w", err)
 	}
 
+	failedUpdates := 0
 	for _, manga := range stale {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 
 		rawURL := strings.TrimRight(src.source.BaseURL, "/") + "/" + strings.TrimLeft(manga.URL, "/")
-		if err := c.processManga(ctx, src, rawURL); err != nil {
+		err := c.processManga(ctx, src, rawURL)
+		switch {
+		case err == nil:
+			c.noteCardSuccess(src.source.ID)
+		case isCardSkipped(err):
+			// 404: тайтла нет — ни сбой, ни успех (серия пропусков
+			// учитывается внутри processManga).
+		default:
+			failedUpdates++
 			log.Printf("[%s] Ошибка обновления %s: %v", src.source.Name, manga.URL, err)
+			stop, disabled := c.noteCardFailure(src, err)
+			if disabled {
+				return errSourceDisabled{source: src.source.Name}
+			}
+			if stop {
+				return errPassAborted{source: src.source.Name}
+			}
 		}
 
 		if err := c.pace.wait(ctx); err != nil {
@@ -393,6 +421,7 @@ func (c *Crawler) crawlSourceUpdates(ctx context.Context, src crawlTarget) error
 	}
 	if len(stale) > 0 {
 		log.Printf("[%s] Проверено подписанных манг: %d", src.source.Name, len(stale))
+		logCardFailures(src.source.Name, "инкрементальном проходе", len(stale), failedUpdates)
 	}
 
 	return nil

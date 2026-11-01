@@ -178,7 +178,7 @@ type fakeLoader struct {
 	calls []string
 }
 
-func (f *fakeLoader) load(ctx context.Context, rawURL string) ([]byte, error) {
+func (f *fakeLoader) load(ctx context.Context, rawURL string, headers ...parsers.ExtraHeader) ([]byte, error) {
 	f.calls = append(f.calls, rawURL)
 
 	switch {
@@ -278,7 +278,7 @@ func TestRemangaLoadChaptersNoBranches(t *testing.T) {
 	card := &parsers.MangaCard{Title: "Тайтл без веток"}
 
 	// Тайтл без веток: подменяем ответ карточки API.
-	loader := func(ctx context.Context, rawURL string) ([]byte, error) {
+	loader := func(ctx context.Context, rawURL string, headers ...parsers.ExtraHeader) ([]byte, error) {
 		return []byte(`{"content":{"branches":[]}}`), nil
 	}
 	_ = empty

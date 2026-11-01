@@ -1,0 +1,77 @@
+# Публикация мини-аппа (miniapp/) на GitHub Pages этого репозитория.
+# URL: https://SemenovDmitry.github.io/manga-crawler/ — у Pages один сайт
+# на репозиторий, dist/ публикуется в корень артефакта (base в Vite —
+# /manga-crawler/). admin/ сюда не деплозится (см. miniapp/readme.md).
+#
+# Разовая настройка (без этого деплой упадёт):
+# 1. Settings → Pages → Build and deployment → Source: «GitHub Actions».
+# 2. Settings → Secrets and variables → Actions → Variables → создать
+#    MINIAPI_PUBLIC_URL — публичный HTTPS-адрес miniapi: без /mini-api
+#    и без слэша на конце (например https://manga.example.com).
+#    Вшивается в бандл на этапе сборки (VITE_API_BASE_URL); сменили —
+#    перезапустите workflow.
+name: Деплой miniapp на GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "miniapp/**"
+      - ".github/workflows/miniapp-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: miniapp/pnpm-lock.yaml
+
+      - name: Проверить переменную MINIAPI_PUBLIC_URL
+        if: vars.MINIAPI_PUBLIC_URL == ''
+        run: |
+          echo "::error::Не задана переменная репозитория MINIAPI_PUBLIC_URL (Settings → Secrets and variables → Actions → Variables): публичный HTTPS-адрес miniapi без /mini-api и без слэша на конце."
+          exit 1
+
+      - name: Установить зависимости
+        working-directory: miniapp
+        run: pnpm install --frozen-lockfile
+
+      - name: Собрать (tsc + vite)
+        working-directory: miniapp
+        env:
+          VITE_API_BASE_URL: ${{ vars.MINIAPI_PUBLIC_URL }}
+        run: pnpm build
+
+      - name: Настроить Pages
+        uses: actions/configure-pages@v5
+
+      - name: Загрузить артефакт Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: miniapp/dist
+
+      - name: Деплой на Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

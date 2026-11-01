@@ -71,5 +71,24 @@ services:
     ports:
       - "8081:8081"
 
+  miniapi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: manga-crawler-miniapi
+    restart: unless-stopped
+    working_dir: /app
+    command: ./manga-crawler-miniapi
+    environment:
+      - TZ=Etc/GMT
+      - DB_HOST=db
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8082:8082"
+
 volumes:
   db-data:

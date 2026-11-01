@@ -104,7 +104,7 @@ function MangaCardView({
   return (
     <div className="space-y-4">
       <div>
-        <Button variant="ghost" size="sm" onClick={onBack}>
+        <Button variant="link" size="sm" onClick={onBack}>
           {t("manga.back")}
         </Button>
       </div>

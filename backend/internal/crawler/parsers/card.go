@@ -12,10 +12,18 @@ import (
 	"errors"
 )
 
+// ExtraHeader — дополнительный заголовок запроса для PageLoader.
+type ExtraHeader struct {
+	Key   string
+	Value string
+}
+
 // PageLoader — функция загрузки страницы, которую краулер передаёт
 // драйверам с догрузкой данных (см. ChapterLoader): обёртка над Fetcher
-// с паузой вежливости перед каждым запросом.
-type PageLoader func(ctx context.Context, rawURL string) ([]byte, error)
+// с паузой вежливости перед каждым запросом. Дополнительные заголовки
+// (например, Referer у API, отвечающего 403 без него) добавляются
+// к стандартному набору (User-Agent, Accept, Accept-Language).
+type PageLoader func(ctx context.Context, rawURL string, extraHeaders ...ExtraHeader) ([]byte, error)
 
 // ChapterLoader — необязательная способность драйвера: догружать главы,
 // которых нет в HTML карточки. Нужен источникам, где SSR отдаёт только
@@ -31,12 +39,23 @@ type ChapterLoader interface {
 
 // CardUserAgent — необязательная способность драйвера: свой User-Agent
 // для загрузки карточек. Нужен источникам, которые отдают полный SSR
-// только известным роботам (mangalib: браузерный UA получает пустой
-// SPA-каркас, Googlebot-UA — полноценную страницу). Возвращается
-// User-Agent целиком; краулер подставит его в запросы карточек только
-// этого источника, остальные источники работают со стандартным UA.
+// только известным роботам. Возвращается User-Agent целиком; краулер
+// подставит его в запросы карточек только этого источника, остальные
+// источники работают со стандартным UA.
 type CardUserAgent interface {
 	CardUserAgent() string
+}
+
+// CardRequestProvider — необязательная способность драйвера: данные
+// карточки берутся не со страницы сайта, а из API источника. Нужен
+// сайтам за антибот-защитой (DDoS-Guard отвечает роботному UA 503,
+// а их API открыт): краулер запросит указанный адрес и передаст ответ
+// ParseMangaCard как обычно.
+type CardRequestProvider interface {
+	// CardRequest возвращает адрес запроса данных карточки и заголовки,
+	// без которых API не отвечает (Referer, Site-Id). urlPart — url-часть
+	// карточки ("ru/manga/123--slug").
+	CardRequest(urlPart string) (rawURL string, headers []ExtraHeader)
 }
 
 // Chapter — глава из списка на странице манги.

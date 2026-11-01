@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router"
 import { useTranslation } from "react-i18next"
 import { PageSpinner } from "@/components/Spinner"
 import { Switch } from "@/components/ui/Switch"
@@ -46,10 +47,16 @@ export function ChatUsers() {
 
 function ChatUserRow({ user }: { user: IChatUser }) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const setEnabled = useSetChatUserEnabled()
 
   return (
-    <TableRow>
+    <TableRow
+      className="cursor-pointer"
+      onClick={() =>
+        void navigate({ to: "/chat-users/$chatId", params: { chatId: String(user.chat_id) } })
+      }
+    >
       <TableCell className="font-medium">{user.username || "—"}</TableCell>
       <TableCell className="text-muted-foreground">{user.chat_id}</TableCell>
       <TableCell className="text-muted-foreground">
@@ -57,11 +64,13 @@ function ChatUserRow({ user }: { user: IChatUser }) {
       </TableCell>
       <TableCell>{user.is_active ? t("chatUsers.yes") : t("chatUsers.no")}</TableCell>
       <TableCell>
-        <Switch
-          checked={user.blocked}
-          disabled={setEnabled.isPending}
-          onChange={(e) => setEnabled.mutate({ chatId: user.chat_id, enabled: e.target.checked })}
-        />
+        <div onClick={(e) => e.stopPropagation()}>
+          <Switch
+            checked={user.blocked}
+            disabled={setEnabled.isPending}
+            onChange={(e) => setEnabled.mutate({ chatId: user.chat_id, enabled: !e.target.checked })}
+          />
+        </div>
       </TableCell>
     </TableRow>
   )

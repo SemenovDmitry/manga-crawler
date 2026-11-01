@@ -9,7 +9,7 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/adminapi/oapi"
 )
 
-// Server реализует контракт oapi.ServerInterface из docs/openapi.yaml.
+// Server реализует контракт oapi.ServerInterface из docs/openapi-admin.yaml.
 var _ oapi.ServerInterface = (*Server)(nil)
 
 type Server struct {
@@ -48,6 +48,7 @@ func newEngine(store Store, cfg Config) *gin.Engine {
 		auth.PATCH("/sources/:id/enabled", w.SetSourceEnabled)
 		auth.POST("/sources/:id/recrawl", w.ResetSourceFullCrawl)
 		auth.GET("/chat-users", w.ListChatUsers)
+		auth.GET("/chat-users/:chat_id/user-subscription", w.ListChatUserSubscription)
 		auth.PATCH("/chat-users/:chat_id/enabled", w.SetChatUserEnabled)
 		auth.GET("/manga", w.ListManga)
 		auth.GET("/manga/:id", w.GetManga)

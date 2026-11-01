@@ -129,6 +129,23 @@ func formatSourceDisabledMessage(src SourceInfo, failures int, parseErr error) s
 	)
 }
 
+// formatSourceStoppedMessage собирает текст сервисного сообщения хозяину
+// об остановке прохода серией ошибок обработки карточек (сайт или API
+// недоступны). В отличие от автоотключения, источник остаётся включённым —
+// действий не требуется, следующий проход повторит попытку сам.
+func formatSourceStoppedMessage(src SourceInfo, failures int, lastErr error) string {
+	return fmt.Sprintf(
+		"⚠️ <b>Источник «%s»: проход остановлен</b>\n"+
+			"<i>Обработка карточек падала %d раз подряд — сайт или API недоступны.</i>\n\n"+
+			"Последняя ошибка: <code>%s</code>\n\n"+
+			"Источник остаётся включённым: следующий проход по расписанию повторит попытку сам.\n"+
+			"Если недоступность затянется, источник можно выключить: админка → sources → enabled.",
+		html.EscapeString(src.Name),
+		failures,
+		html.EscapeString(truncateText(singleLine(errText(lastErr)), 300)),
+	)
+}
+
 // errText безопасно извлекает текст ошибки (nil — заглушка).
 func errText(err error) string {
 	if err == nil {

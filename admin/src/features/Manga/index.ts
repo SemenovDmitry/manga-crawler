@@ -1,3 +1,3 @@
-export { Manga as default } from "./Manga"
+export { Manga as default, StatusBadge } from "./Manga"
 export { MangaDetail } from "./MangaDetail"
 export { MangaForm } from "./MangaForm"

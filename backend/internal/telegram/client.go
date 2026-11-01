@@ -37,6 +37,7 @@ func InitializeBot(store *storage.Store) (*Bot, error) {
 
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	chatID := os.Getenv("TELEGRAM_CHAT_ID")
+	miniAppURL := os.Getenv("MINIAPP_URL")
 
 	if token == "" {
 		return nil, fmt.Errorf("переменная окружения TELEGRAM_BOT_TOKEN не задана")
@@ -45,22 +46,30 @@ func InitializeBot(store *storage.Store) (*Bot, error) {
 		return nil, fmt.Errorf("переменная окружения TELEGRAM_CHAT_ID не задана")
 	}
 
-	return createBot(token, chatID, store), nil
+	return createBot(token, chatID, miniAppURL, store), nil
 }
 
-func createBot(token, chatID string, store *storage.Store) *Bot {
+func createBot(token, chatID, miniAppURL string, store *storage.Store) *Bot {
 	bot := Bot{
-		Token:  token,
-		ChatID: chatID,
-		Client: &http.Client{Timeout: 60 * time.Second},
-		BotURL: fmt.Sprintf("https://api.telegram.org/bot%s", token),
-		Store:  store,
+		Token:      token,
+		ChatID:     chatID,
+		MiniAppURL: miniAppURL,
+		Client:     &http.Client{Timeout: 60 * time.Second},
+		BotURL:     fmt.Sprintf("https://api.telegram.org/bot%s", token),
+		Store:      store,
 	}
 
 	log.Println("Telegram бот инициализирован")
 
 	if err := bot.setBotCommands(); err != nil {
 		log.Printf("Ошибка установки меню команд: %v", err)
+	}
+	if bot.MiniAppURL != "" {
+		if err := bot.setChatMenuButton(); err != nil {
+			log.Printf("Ошибка установки кнопки меню: %v", err)
+		}
+	} else {
+		log.Println("MINIAPP_URL не задан — кнопка меню мини-аппа не устанавливается")
 	}
 	if err := bot.sendStartupNotification(); err != nil {
 		log.Printf("Ошибка стартового уведомления: %v", err)
@@ -87,6 +96,26 @@ func (bot *Bot) setBotCommands() error {
 	}
 
 	log.Println("Меню команд бота установлено")
+	return nil
+}
+
+// setChatMenuButton ставит кнопку меню бота (слева от поля ввода) —
+// открытие мини-приложения. Вызывается только при заданном MINIAPP_URL:
+// без него остаётся стандартное меню команд.
+func (bot *Bot) setChatMenuButton() error {
+	request := SetChatMenuButtonRequest{
+		MenuButton: &MenuButton{
+			Type:   "web_app",
+			Text:   textMenuButton,
+			WebApp: &WebAppInfo{URL: bot.MiniAppURL},
+		},
+	}
+
+	if err := bot.callTelegram("setChatMenuButton", request, nil); err != nil {
+		return fmt.Errorf("ошибка установки кнопки меню: %w", err)
+	}
+
+	log.Println("Кнопка меню бота установлена")
 	return nil
 }
 

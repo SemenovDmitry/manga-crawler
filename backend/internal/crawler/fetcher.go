@@ -9,20 +9,36 @@ import (
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/crawler/parsers"
 )
 
 const maxResponseBody = 25 << 20 // 25 МБ
 
 const (
-	fetchAttempts       = 3
-	fetchRetryBaseDelay = 2 * time.Second
-	defaultUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	fetchAttempts    = 3
+	defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+
+// fetchRetryBaseDelay — базовая пауза ретрая (2с, 4с, 8с...). var, чтобы
+// тесты не ждали реальные секунды.
+var fetchRetryBaseDelay = 2 * time.Second
 
 // ErrRedirected — карточка отвечает кросс-доменным редиректом: движок
 // перенёс тайтл на зеркало (другой домен, часто и другой слаг), по
 // исходному адресу контента больше нет. Такая карточка пропускается.
 var ErrRedirected = errors.New("редирект на другой домен")
+
+// httpStatusError — запрос дошёл до сервера, но тот ответил HTTP-статусом
+// без полезного тела. Ретраятся только временные статусы (isRetryableFetchErr).
+type httpStatusError struct {
+	code int
+	url  string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d от %s", e.code, e.url)
+}
 
 // Fetcher — HTTP-клиент краулера: скачивание страниц с User-Agent,
 // лимитом тела ответа и ретраями перемежающихся сетевых сбоев.
@@ -55,9 +71,11 @@ func NewFetcher() *Fetcher {
 	}
 }
 
-// Page скачивает служебную страницу (sitemap, страница каталога).
-func (f *Fetcher) Page(ctx context.Context, rawURL string) ([]byte, error) {
-	return f.fetchWithClient(ctx, f.page, rawURL)
+// Page скачивает служебную страницу (sitemap, страница каталога,
+// публичное API источника). Дополнительные заголовки добавляются
+// к стандартному набору (User-Agent, Accept, Accept-Language).
+func (f *Fetcher) Page(ctx context.Context, rawURL string, extraHeaders ...parsers.ExtraHeader) ([]byte, error) {
+	return f.fetchWithClient(ctx, f.page, rawURL, "", extraHeaders)
 }
 
 // Card скачивает карточку манги; кросс-доменный редирект не
@@ -65,15 +83,20 @@ func (f *Fetcher) Page(ctx context.Context, rawURL string) ([]byte, error) {
 // Необязательный uaOverride подменяет стандартный User-Agent
 // (источники, отдающие SSR только роботам — см. parsers.CardUserAgent).
 func (f *Fetcher) Card(ctx context.Context, rawURL string, uaOverride ...string) ([]byte, error) {
-	return f.fetchWithClient(ctx, f.card, rawURL, uaOverride...)
+	ua := ""
+	if len(uaOverride) > 0 {
+		ua = uaOverride[0]
+	}
+	return f.fetchWithClient(ctx, f.card, rawURL, ua, nil)
 }
 
 // fetchWithClient выполняет GET-запрос указанным клиентом с ретрями:
 // перемежающиеся сетевые сбои (EOF, TLS handshake timeout, connection
-// reset) повторяются с нарастающей паузой; HTTP-статусы, кросс-доменные
+// reset) и временные HTTP-статусы (429, 502, 503, 504) повторяются
+// с нарастающей паузой; остальные HTTP-статусы, кросс-доменные
 // редиректы и отмена контекста не повторяются — это стабильные ответы,
 // повтор не изменит результат.
-func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawURL string, uaOverride ...string) ([]byte, error) {
+func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawURL, uaOverride string, extraHeaders []parsers.ExtraHeader) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt < fetchAttempts; attempt++ {
 		if attempt > 0 {
@@ -86,7 +109,7 @@ func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawU
 			}
 		}
 
-		body, err := f.fetchOnce(ctx, client, rawURL, uaOverride...)
+		body, err := f.fetchOnce(ctx, client, rawURL, uaOverride, extraHeaders)
 		if err == nil {
 			return body, nil
 		}
@@ -98,18 +121,21 @@ func (f *Fetcher) fetchWithClient(ctx context.Context, client *http.Client, rawU
 	return nil, lastErr
 }
 
-func (f *Fetcher) fetchOnce(ctx context.Context, client *http.Client, rawURL string, uaOverride ...string) ([]byte, error) {
+func (f *Fetcher) fetchOnce(ctx context.Context, client *http.Client, rawURL, uaOverride string, extraHeaders []parsers.ExtraHeader) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
 	userAgent := f.userAgent
-	if len(uaOverride) > 0 && uaOverride[0] != "" {
-		userAgent = uaOverride[0]
+	if uaOverride != "" {
+		userAgent = uaOverride
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "ru,en;q=0.8")
+	for _, h := range extraHeaders {
+		req.Header.Set(h.Key, h.Value)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -125,7 +151,7 @@ func (f *Fetcher) fetchOnce(ctx context.Context, client *http.Client, rawURL str
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("HTTP %d от %s", resp.StatusCode, rawURL)
+		return nil, &httpStatusError{code: resp.StatusCode, url: rawURL}
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
@@ -137,15 +163,29 @@ func (f *Fetcher) fetchOnce(ctx context.Context, client *http.Client, rawURL str
 }
 
 // isRetryableFetchErr определяет, стоит ли повторять запрос:
-// только сетевые сбои соединения и чтения ответа, распознаваемые по
-// типам ошибок (а не по тексту); обёртки с контекстом и ошибки DNS
-// не повторяются (отмена/таймаут запроса — решение вызывающего,
-// DNS-сбой стабилен).
+// сетевые сбои соединения и чтения ответа, а также временные
+// HTTP-статусы — перегрузка/недоступность шлюза (429, 502, 503, 504),
+// которые сайты отдают при всплесках нагрузки. Остальные статусы
+// (403/404/410 и т.п.) стабильны — повтор не изменит ответ; обёртки
+// с контекстом и ошибки DNS не повторяются (отмена/таймаут запроса —
+// решение вызывающего, DNS-сбой стабилен).
 func isRetryableFetchErr(err error) bool {
 	if err == nil ||
 		errors.Is(err, ErrRedirected) ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	// Временные HTTP-статусы: повтор с паузой часто проходит
+	// (балансировщик сайта или API мигнул перегрузкой).
+	var statusErr *httpStatusError
+	if errors.As(err, &statusErr) {
+		switch statusErr.code {
+		case http.StatusTooManyRequests, http.StatusBadGateway,
+			http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return true
+		}
 		return false
 	}
 

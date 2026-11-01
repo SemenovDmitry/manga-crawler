@@ -26,6 +26,7 @@ type fakeStore struct {
 	manga       map[int64]storage.Manga
 	nextMangaID int64
 	sessions    map[string]storage.AdminSession // ключ — хэш refresh-токена
+	subs        map[int64][]int64               // chat_id -> подписанные manga_id
 }
 func newFakeStore() *fakeStore {
 	return &fakeStore{
@@ -37,6 +38,7 @@ func newFakeStore() *fakeStore {
 		},
 		nextMangaID: 43,
 		sessions:    map[string]storage.AdminSession{},
+		subs:        map[int64][]int64{100: {42}},
 	}
 }
 
@@ -140,6 +142,29 @@ func (f *fakeStore) SetChatUserBlocked(chatID int64, blocked bool) (storage.Chat
 	u.Blocked = blocked
 	f.chatusers[chatID] = u
 	return u, nil
+}
+
+func (f *fakeStore) GetChatUser(chatID int64) (storage.ChatUser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	u, ok := f.chatusers[chatID]
+	if !ok {
+		return storage.ChatUser{}, storage.ErrChatUserNotFound
+	}
+	return u, nil
+}
+
+func (f *fakeStore) UserSubscriptions(chatID int64) ([]storage.Manga, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.chatusers[chatID]; !ok {
+		return nil, storage.ErrChatUserNotFound
+	}
+	var out []storage.Manga
+	for _, sub := range f.subs[chatID] {
+		out = append(out, f.manga[sub])
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListManga(filter storage.MangaFilter) ([]storage.Manga, error) {
@@ -643,6 +668,45 @@ func TestCreateMangaDuplicate(t *testing.T) {
 	}
 	if err := parseJSON(rec.Body.String(), &errResp); err != nil || errResp.Error == "" {
 		t.Errorf("тело ошибки: %q, err = %v", rec.Body.String(), err)
+	}
+}
+
+// TestListChatUserSubscription — подписки чата: без пагинации, в порядке
+// подписок fakeStore; несуществующий чат — 404, чат без подписок — пустой список.
+func TestListChatUserSubscription(t *testing.T) {
+	r, store := testServer(t)
+	access, _ := login(t, r)
+
+	// Чат 100 подписан на мангу 42 (сид fakeStore).
+	rec := doAuthJSON(t, r, http.MethodGet, "/admin-api/chat-users/100/user-subscription", access, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("подписки чата 100: код %d, тело %s", rec.Code, rec.Body.String())
+	}
+	var list struct {
+		Items []struct {
+			ID    int64  `json:"id"`
+			Title string `json:"title"`
+		} `json:"manga"`
+	}
+	if err := parseJSON(rec.Body.String(), &list); err != nil {
+		t.Fatalf("разбор списка подписок: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].ID != 42 || list.Items[0].Title != "Одна пьеса" {
+		t.Errorf("подписки = %+v, ожидалась одна манга 42 «Одна пьеса»", list.Items)
+	}
+
+	// Существующий чат без подписок — пустой список, не ошибка.
+	store.subs[200] = nil
+	store.chatusers[200] = storage.ChatUser{ChatID: 200, Username: "empty", IsActive: true}
+	rec = doAuthJSON(t, r, http.MethodGet, "/admin-api/chat-users/200/user-subscription", access, "")
+	if rec.Code != http.StatusOK {
+		t.Errorf("подписки пустого чата: код %d, ожидался 200", rec.Code)
+	}
+
+	// Несуществующий чат — 404.
+	rec = doAuthJSON(t, r, http.MethodGet, "/admin-api/chat-users/999/user-subscription", access, "")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("несуществующий чат: код %d, ожидался 404", rec.Code)
 	}
 }
 

@@ -1,7 +1,7 @@
 # Админ-панель manga-crawler
 
 Веб-интерфейс над `cmd/adminapi` (Go/gin, `:8081`, префикс `/admin-api`).
-Контракт API — [backend/docs/openapi.yaml](../backend/docs/openapi.yaml):
+Контракт API — [backend/docs/openapi-admin.yaml](../backend/docs/openapi-admin.yaml):
 auth (login / refresh-ротация / logout), sources, chat-users, manga (CRUD + поиск).
 
 ## Стек
@@ -12,7 +12,7 @@ auth (login / refresh-ротация / logout), sources, chat-users, manga (CRUD
 | UI             | shadcn/ui + Tailwind CSS                              | компоненты в репозитории, полный контроль, минимальный бандл                                                                                             |
 | Таблицы        | TanStack Table (headless)                             | сортировка/пагинация под себя, стили shadcn                                                                                                              |
 | Данные         | TanStack Query                                        | кеш, рефетч, состояние загрузки/ошибок                                                                                                                   |
-| API-клиент     | генерация из `docs/openapi.yaml` (openapi-typescript) | единый источник правды с бэкендом, типобезопасность                                                                                                      |
+| API-клиент     | генерация из `docs/openapi-admin.yaml` (openapi-typescript) | единый источник правды с бэкендом, типобезопасность                                                                                                      |
 | i18n           | react-i18next, типизированные ключи                   | RU (базовый) + EN, JSON-словари                                                                                                                          |
 | Валидация форм | react-hook-form + zod                                 | схемы переиспользуются для create/update                                                                                                                 |
 | Роутинг        | TanStack Router                                       | типизированные маршруты, search-параметры с zod-валидацией (фильтры таблицы манги живут в URL), `beforeLoad`-гарды, нативная интеграция с TanStack Query |
@@ -43,7 +43,7 @@ cookie вместо `Authorization: Bearer` и JSON-тела, cookieAuth в сп
 ## Этапы
 
 Каждый этап привязан к операциям API по `operationId` из
-[backend/docs/openapi.yaml](../backend/docs/openapi.yaml) — схемы запросов и
+[backend/docs/openapi-admin.yaml](../backend/docs/openapi-admin.yaml) — схемы запросов и
 ответов не дублируются здесь, они приходят из генерации клиента.
 
 0. **Правки бэкенда** (делаются до фронтенда этапов 2–4):
@@ -63,10 +63,9 @@ cookie вместо `Authorization: Bearer` и JSON-тела, cookieAuth в сп
 1. **Каркас**: Vite-проект в `admin/`, Tailwind + shadcn, генератор клиента из
    OpenAPI-спеки (`pnpm gen:api`), dev-прокси, TanStack Router (дерево
    маршрутов + гарды), i18n-инициализация, Biome (линт + формат), `base: './'`.
-   Базовая тема: тёмная тёплая, коричневая («coffee») — за основу берётся
-   стандартная тёмная палитра shadcn с осветлёнными фонами (не чёрная, а
-   тёмно-коричневая с повышенной светлотой, нейтральные акценты заменяются на
-   тёплые). Токены размещаются в `@layer base` файла `globals.css`
+   Базовая тема: тёмная «Graphite» — нейтральный графит (не чёрный)
+   с приглушённым стальным синим акцентом. Токены размещаются в `@layer base`
+   файла `globals.css`
    (каскадные слои Tailwind), тёмная тема — дефолт (`html.dark` без
    переключателя на каркасе). Компоненты используют только
    семантические классы (`bg-background`, `text-muted-foreground`).
@@ -117,7 +116,7 @@ cookie вместо `Authorization: Bearer` и JSON-тела, cookieAuth в сп
 ```bash
 cd admin
 npm install      # см. примечание про pnpm ниже
-npm run gen:api  # типы клиента из ../backend/docs/openapi.yaml
+npm run gen:api  # типы клиента из ../backend/docs/openapi-admin.yaml
 npm run dev      # Vite на :5173, прокси /admin-api → :8081
 ```
 
@@ -142,8 +141,8 @@ npm run dev      # Vite на :5173, прокси /admin-api → :8081
 
 - **Этап 0 (бэкенд)** — готов: cookie-auth, 409 на дубликат, `total` в списке
   манги; тесты зелёные.
-- **Этап 1 (каркас)** — готов: Vite + React 19 + Tailwind v4 (coffee-тёмная
-  тема в `@layer base`), shadcn-компоненты (button/card/input/badge),
+- **Этап 1 (каркас)** — готов: Vite + React 19 + Tailwind v4 (тёмная тема
+  «Graphite» в `@layer base`), shadcn-компоненты (button/card/input/badge),
   генератор клиента `gen:api`, TanStack Router (гард `_auth`, редиректы,
   404), i18n RU/EN, Biome, `base: './'`; `npm run build` зелёный.
 - **Этап 2 (аутентификация)** — готов: refresh-очередь при 401 (один refresh

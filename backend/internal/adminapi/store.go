@@ -18,7 +18,9 @@ type Store interface {
 
 	// chat_users
 	ListChatUsers(filter storage.ChatUserFilter) ([]storage.ChatUser, error)
+	GetChatUser(chatID int64) (storage.ChatUser, error)
 	SetChatUserBlocked(chatID int64, blocked bool) (storage.ChatUser, error)
+	UserSubscriptions(chatID int64) ([]storage.Manga, error)
 
 	// manga
 	ListManga(filter storage.MangaFilter) ([]storage.Manga, error)

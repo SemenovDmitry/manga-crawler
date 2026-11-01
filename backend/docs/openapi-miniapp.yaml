@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: Manga Crawler Mini App API
+  description: |
+    API мини-приложения Telegram (miniapp): поиск манги, подписки.
+
+    Аутентификация — stateless, без cookie и сессий: каждый запрос несёт
+    заголовок `X-Telegram-Init-Data` с сырым `initData` из Telegram SDK.
+    Сервер проверяет HMAC-SHA256 (секрет — `HMAC_SHA256(bot_token,
+    "WebAppData")`), свежесть `auth_date` и находит/создаёт пользователя
+    в `chat_users` по `user.id` (= chat_id бота).
+  version: 1.0.0
+servers:
+  - url: /mini-api
+security:
+  - initDataAuth: []
+tags:
+  - name: me
+    description: Текущий пользователь
+  - name: manga
+    description: Поиск и карточка манги
+  - name: subscriptions
+    description: Подписки пользователя
+
+paths:
+  /me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: Текущий пользователь
+      description: >
+        Данные из проверенного initData — «кто я». Пользователь к этому
+        запросу уже создан/обновлён в chat_users (middleware).
+      responses:
+        '200':
+          description: Пользователь Telegram, открывший мини-апп
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /manga/search:
+    get:
+      tags: [manga]
+      operationId: searchManga
+      summary: Поиск манги по названию
+      description: >
+        Подстрочный поиск по title и alt_titles (без учёта регистра),
+        упорядочен по числу глав. Аналог команды /find бота.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Подстрока названия
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Результаты поиска (возможно, пустой список)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MangaList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /manga/{mangaId}:
+    get:
+      tags: [manga]
+      operationId: getManga
+      summary: Карточка манги
+      description: Данные манги и признак — подписан ли текущий пользователь.
+      parameters:
+        - $ref: '#/components/parameters/MangaID'
+      responses:
+        '200':
+          description: Карточка манги
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MangaDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /subscriptions:
+    get:
+      tags: [subscriptions]
+      operationId: listSubscriptions
+      summary: Мои подписки
+      description: Подписки текущего пользователя (аналог /list бота).
+      responses:
+        '200':
+          description: Подписки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MangaList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /subscriptions/{mangaId}:
+    put:
+      tags: [subscriptions]
+      operationId: subscribeManga
+      summary: Подписаться
+      description: >
+        Идемпотентно: повторный PUT не меняет состояние и возвращает тот же
+        ответ. 404 — манги с таким id нет.
+      parameters:
+        - $ref: '#/components/parameters/MangaID'
+      responses:
+        '200':
+          description: Состояние подписки после запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+    delete:
+      tags: [subscriptions]
+      operationId: unsubscribeManga
+      summary: Отписаться
+      description: >
+        Идемпотентно: если подписки не было — состояние то же. 404 — манги
+        с таким id нет.
+      parameters:
+        - $ref: '#/components/parameters/MangaID'
+      responses:
+        '200':
+          description: Состояние подписки после запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/Internal'
+
+components:
+  securitySchemes:
+    initDataAuth:
+      type: apiKey
+      in: header
+      name: X-Telegram-Init-Data
+      description: Сырой initData из Telegram SDK (query-string формат).
+
+  parameters:
+    MangaID:
+      name: mangaId
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+
+  responses:
+    BadRequest:
+      description: Неверный формат параметров запроса
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: >
+        Нет заголовка X-Telegram-Init-Data, неверная подпись (hash) или
+        истёкший auth_date
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Манга не найдена
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Internal:
+      description: Внутренняя ошибка (детали только в логах сервера)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    User:
+      type: object
+      required: [id, first_name]
+      description: >
+        Пользователь Telegram из initData. Часть полей опциональна —
+        Telegram присылает их, только если заданы в профиле.
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: ID пользователя Telegram (= chat_id в chat_users)
+        username:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        language_code:
+          type: string
+        photo_url:
+          type: string
+
+    PublicationStatus:
+      type: string
+      enum: [ongoing, completed, hiatus, cancelled, discontinued]
+
+    Manga:
+      type: object
+      required:
+        - id
+        - source_name
+        - source_url
+        - title
+        - alt_titles
+        - latest_chapter
+        - chapters_count
+        - publication_status
+      properties:
+        id:
+          type: integer
+          format: int64
+        source_name:
+          type: string
+        source_url:
+          type: string
+          description: Полная ссылка на страницу манги у источника
+        title:
+          type: string
+        alt_titles:
+          type: string
+        latest_chapter:
+          type: string
+        chapters_count:
+          type: integer
+        publication_status:
+          $ref: '#/components/schemas/PublicationStatus'
+
+    MangaDetail:
+      type: object
+      required: [manga, subscribed]
+      properties:
+        manga:
+          $ref: '#/components/schemas/Manga'
+        subscribed:
+          type: boolean
+          description: Подписан ли текущий пользователь на эту мангу
+
+    MangaList:
+      type: object
+      required: [manga]
+      properties:
+        manga:
+          type: array
+          items:
+            $ref: '#/components/schemas/Manga'
+
+    SubscriptionState:
+      type: object
+      required: [manga_id, subscribed]
+      properties:
+        manga_id:
+          type: integer
+          format: int64
+        subscribed:
+          type: boolean

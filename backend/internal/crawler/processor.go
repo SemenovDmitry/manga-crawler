@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/crawler/parsers"
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
@@ -22,12 +23,13 @@ func (s urlSet) add(urlPart string)           { s[urlPart] = true }
 type processResult struct {
 	processed int // карточек, успешно загруженных и сохранённых
 	skipped   int // пропущено: уже известны или url-часть не распознана
+	failed    int // карточек, не обработанных из-за ошибки (сеть, HTTP-статус, парсинг)
 }
 
 // cardParseError — не удалось разобрать разметку карточки: драйвер сломан,
 // сайт отдал заглушку или изменил вёрстку. Отличается от сетевого сбоя:
-// именно такие ошибки копятся и при превышении порога отключают источник
-// (см. Crawler.noteCardParseError).
+// серия ошибок обработки, закончившаяся ошибкой парсинга, отключает
+// источник, а не только останавливает проход (см. Crawler.noteCardFailure).
 type cardParseError struct{ err error }
 
 func (e *cardParseError) Error() string {
@@ -38,6 +40,20 @@ func (e *cardParseError) Unwrap() error { return e.err }
 func isCardParseError(err error) bool {
 	var parseErr *cardParseError
 	return errors.As(err, &parseErr)
+}
+
+// errCardSkipped — карточка пропущена без обработки: тайтла по адресу нет
+// (HTTP 404 — удалён или ещё не в API). Не сбой (серию ошибок не растит,
+// проход не останавливает) и не успех (серию пропусков не сбрасывает).
+type errCardSkipped struct{}
+
+func (e *errCardSkipped) Error() string {
+	return "карточка пропущена: недоступна (404)"
+}
+
+func isCardSkipped(err error) bool {
+	var skipped *errCardSkipped
+	return errors.As(err, &skipped)
 }
 
 // knownURLParts — множество url-частей манг источника, сохранённых в БД.
@@ -57,8 +73,9 @@ func (c *Crawler) knownURLParts(sourceID int) (urlSet, error) {
 
 // processNewURLs обрабатывает карточки, url-части которых ещё не встречались
 // в множестве seen (обновляется по ходу: см. urlSet). Ошибки отдельных
-// карточек логируются и проход не прерывают; ошибки парсинга разметки
-// копятся и при превышении порога отключают источник (noteCardParseError).
+// карточек логируются; серия ошибок длиной Config.CardFailureLimit
+// останавливает проход — на ошибке парсинга источник отключается
+// (noteCardFailure), иначе просто прерывается до следующего прохода.
 // Между обработками выдерживается пауза вежливости (pacer); label — имя
 // канала для логов прогресса.
 func (c *Crawler) processNewURLs(
@@ -78,18 +95,24 @@ func (c *Crawler) processNewURLs(
 		}
 		seen.add(urlPart)
 
-		if err := c.processManga(ctx, src, rawURL); err != nil {
-			log.Printf("[%s] Ошибка обработки %s: %v", src.source.Name, rawURL, err)
-			if isCardParseError(err) {
-				// Сломанная разметка копится в серии: порог отключает
-				// источник, остаток списка не обрабатывается.
-				if _, disabled := c.noteCardParseFailure(src); disabled {
-					return res, errSourceDisabled{source: src.source.Name}
-				}
-			}
-		} else {
+		err := c.processManga(ctx, src, rawURL)
+		switch {
+		case err == nil:
 			res.processed++
-			c.noteCardParseSuccess(src.source.ID)
+			c.noteCardSuccess(src.source.ID)
+		case isCardSkipped(err):
+			// 404-пропуск: ни сбой, ни успех — серии не трогает
+			// (учёт серии пропусков внутри processManga).
+		default:
+			res.failed++
+			log.Printf("[%s] Ошибка обработки %s: %v", src.source.Name, rawURL, err)
+			stop, disabled := c.noteCardFailure(src, err)
+			if disabled {
+				return res, errSourceDisabled{source: src.source.Name}
+			}
+			if stop {
+				return res, errPassAborted{source: src.source.Name}
+			}
 		}
 
 		if err := c.pace.wait(ctx); err != nil {
@@ -108,39 +131,102 @@ func (c *Crawler) processNewURLs(
 	return res, nil
 }
 
+// cardErrorWarnShare — доля неудачных карточек в проходе (%), с которой
+// сбои перестают считаться разовыми и логируются предупреждением.
+const cardErrorWarnShare = 10
+
+// logCardFailures сводит сбои обработки карточек за проход в одну строку.
+// Массовые сбои (доля от cardErrorWarnShare и выше) — предупреждение:
+// полный обход с легом сайта формально завершится успешно и отметит
+// расписание, а пропущенные карточки будут ждать следующего прохода.
+func logCardFailures(source, passKind string, attempted, failed int) {
+	if failed == 0 || attempted <= 0 {
+		return
+	}
+
+	share := 100 * failed / attempted
+	if share >= cardErrorWarnShare {
+		log.Printf(
+			"[%s] ВНИМАНИЕ: сбои обработки массовые — не обработано %d карточек из %d (%d%%). Неудачные карточки повторятся при следующем %s; устойчивый уровень говорит о недоступности сайта",
+			source, failed, attempted, share, passKind,
+		)
+		return
+	}
+	log.Printf("[%s] Не обработано карточек из-за ошибок: %d из %d (повторятся при следующем %s)",
+		source, failed, attempted, passKind)
+}
+
 // errSourceDisabled — обход источника прерван его автоотключением
-// (после порога ошибок парсинга). Не логируется как сбой прохода.
+// (серия ошибок, закончившаяся ошибкой парсинга). Не логируется как сбой.
 type errSourceDisabled struct{ source string }
 
 func (e errSourceDisabled) Error() string {
 	return "источник " + e.source + " отключён после серии ошибок парсинга"
 }
 
-// noteCardParseSuccess сбрасывает серию ошибок парсинга источника:
-// успешная карточка — сайт жив и разметка на месте.
-func (c *Crawler) noteCardParseSuccess(sourceID int) {
+// errPassAborted — проход остановлен серией ошибок обработки карточек
+// (сайт или API недоступны). Источник остаётся включённым: следующий
+// проход по расписанию повторит пропущенное, при восстановлении сайта
+// всё восстановится само. Не логируется как сбой.
+type errPassAborted struct{ source string }
+
+func (e errPassAborted) Error() string {
+	return "источник " + e.source + ": проход остановлен после серии ошибок обработки карточек"
+}
+
+// noteCardSuccess сбрасывает серию ошибок обработки источника:
+// успешная карточка — сайт жив и разметка на месте. Заодно разрешает
+// новое сообщение об остановке прохода (эпизод недоступности кончился).
+func (c *Crawler) noteCardSuccess(sourceID int) {
 	c.failMu.Lock()
 	defer c.failMu.Unlock()
 	delete(c.cardFailures, sourceID)
+	delete(c.stopNotified, sourceID)
 }
 
-// noteCardParseFailure учитывает ошибку парсинга карточки. Когда серия
-// достигает Config.CardFailureLimit (0 — автоотключение выключено),
-// источник отключается в БД и хозяину ставится сервисное сообщение.
-// consecutive — длина серии; disabled — источник только что отключён.
-func (c *Crawler) noteCardParseFailure(src crawlTarget) (consecutive int, disabled bool) {
+// noteCardFailure учитывает ошибку обработки карточки в серии источника
+// (считаются любые ошибки: HTTP-статус, сеть, парсинг; сбрасывается серия
+// успешной карточкой). Когда серия достигает Config.CardFailureLimit
+// (0 — контроль выключен), возвращается stop — проход останавливается.
+// Если серия закончилась ошибкой парсинга, источник дополнительно
+// отключается в БД с сервисным сообщением хозяину (disable): сломанную
+// разметку чинит человек, сетевые сбои проходят сами.
+func (c *Crawler) noteCardFailure(src crawlTarget, err error) (stop, disable bool) {
 	limit := c.cfg.CardFailureLimit
 	if limit <= 0 {
-		return 0, false
+		return false, false
 	}
 
 	c.failMu.Lock()
 	c.cardFailures[src.source.ID]++
-	consecutive = c.cardFailures[src.source.ID]
+	consecutive := c.cardFailures[src.source.ID]
 	c.failMu.Unlock()
 
 	if consecutive < limit {
-		return consecutive, false
+		return false, false
+	}
+
+	if !isCardParseError(err) {
+		log.Printf(
+			"[%s] %d ошибок обработки карточек подряд — останавливаю проход до следующего расписания (сайт или API недоступны?)",
+			src.source.Name, consecutive,
+		)
+
+		// Сообщение хозяину — одно на эпизод недоступности: пока серия
+		// не сброшена успехом, каждый следующий проход остановится так же,
+		// и дублирующие сообщения завалили бы чат.
+		c.failMu.Lock()
+		firstStop := !c.stopNotified[src.source.ID]
+		c.stopNotified[src.source.ID] = true
+		c.failMu.Unlock()
+		if firstStop && c.services != nil {
+			c.services.ServiceMessage(formatSourceStoppedMessage(
+				SourceInfo{Name: src.source.Name, BaseURL: src.source.BaseURL},
+				consecutive,
+				err,
+			))
+		}
+		return true, false
 	}
 
 	log.Printf(
@@ -153,7 +239,7 @@ func (c *Crawler) noteCardParseFailure(src crawlTarget) (consecutive int, disabl
 		// попытка отключения повторится на следующем достижении порога.
 		// Сервисное сообщение не дублируем — ждём успешного отключения.
 		log.Printf("[%s] ОШИБКА АВТООТКЛЮЧЕНИЯ: %v", src.source.Name, err)
-		return consecutive, false
+		return false, false
 	}
 	src.source.Enabled = false
 
@@ -165,7 +251,7 @@ func (c *Crawler) noteCardParseFailure(src crawlTarget) (consecutive int, disabl
 		))
 	}
 
-	return consecutive, true
+	return true, true
 }
 
 // processManga загружает страницу манги, обновляет данные в БД
@@ -181,14 +267,20 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 		return err
 	}
 
-	// Драйвер может требовать свой User-Agent для карточек: источники,
-	// отдающие полный SSR только известным роботам (mangalib).
-	var uaOverride []string
-	if ua, ok := src.driver.(parsers.CardUserAgent); ok {
-		uaOverride = []string{ua.CardUserAgent()}
+	// Драйвер может брать данные карточки из API источника (сайт за
+	// антибот-защитой — parsers.CardRequestProvider), иначе грузится
+	// страница сайта, возможно под роботным UA (parsers.CardUserAgent).
+	var body []byte
+	if rp, ok := src.driver.(parsers.CardRequestProvider); ok {
+		apiURL, headers := rp.CardRequest(urlPart)
+		body, err = c.fetch.Page(ctx, apiURL, headers...)
+	} else {
+		var uaOverride []string
+		if ua, ok := src.driver.(parsers.CardUserAgent); ok {
+			uaOverride = []string{ua.CardUserAgent()}
+		}
+		body, err = c.fetch.Card(ctx, rawURL, uaOverride...)
 	}
-
-	body, err := c.fetch.Card(ctx, rawURL, uaOverride...)
 	if err != nil {
 		// Тайтл переехал на зеркало: редирект не переходим, карточка
 		// пропускается — она уже учтена по новому адресу, если тот
@@ -196,6 +288,16 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 		if errors.Is(err, ErrRedirected) {
 			log.Printf("[%s] Пропущен кросс-доменный редирект: %v", src.source.Name, err)
 			return nil
+		}
+		// 404 — тайтла по этому адресу нет (удалён; у mangalib — ещё и
+		// свежие тайтлы, которых нет в API). Пропуск, а не сбой: суть
+		// ответа стабильна, серией таких карточек проход останавливать
+		// нельзя — обход никогда не дошёл бы до живых тайтлов. Уведомлений
+		// хозяину нет: пропуски — норма, их количество видно в логе.
+		var statusErr *httpStatusError
+		if errors.As(err, &statusErr) && statusErr.code == http.StatusNotFound {
+			log.Printf("[%s] Карточка недоступна (404), пропускаю: %s", src.source.Name, rawURL)
+			return &errCardSkipped{}
 		}
 		return err
 	}
@@ -216,10 +318,12 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 	// Догрузка глав для драйверов, где список глав не в HTML карточки
 	// (remanga): ошибка догрузки не отменяет карточку — название и статус
 	// уже распарсены, главы доберутся при следующем обновлении.
+	var loadErr error
 	if loader, ok := src.driver.(parsers.ChapterLoader); ok {
 		load := c.pacedPageLoader()
-		if err := loader.LoadChapters(ctx, load, urlPart, card); err != nil {
-			log.Printf("[%s] Догрузка глав %s не удалась: %v", src.source.Name, urlPart, err)
+		loadErr = loader.LoadChapters(ctx, load, urlPart, card)
+		if loadErr != nil {
+			log.Printf("[%s] Догрузка глав %s не удалась: %v", src.source.Name, urlPart, loadErr)
 		}
 	}
 
@@ -229,9 +333,18 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 		latestChapter = chapters[len(chapters)-1].Number
 	}
 
+	// Сбой догрузки — главы за этот проход неполные: в БД оставляем прежние
+	// chapters_count/latest_chapter (storage.KeepChaptersCount), иначе сбой
+	// выглядел бы как исчезновение глав, а после восстановления API весь
+	// список ушёл бы подписчикам как «новые».
+	chaptersCount := len(chapters)
+	if loadErr != nil {
+		chaptersCount = storage.KeepChaptersCount
+	}
+
 	mangaID, err := c.store.UpsertManga(
 		src.source.ID, urlPart, card.Title, card.AltTitles, latestChapter,
-		storage.PublicationStatus(card.PublicationStatus), len(chapters),
+		storage.PublicationStatus(card.PublicationStatus), chaptersCount,
 	)
 	if err != nil {
 		return err
