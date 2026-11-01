@@ -1,11 +1,15 @@
 # Telegram Mini App — план работ
 
-Статус: **этапы 1 (каркас), 2 (cmd/miniapi) и 3 (экраны MVP) выполнены** —
-приёмки зелёные (этап 3: полный сценарий в dev-режиме против живого
-miniapi — поиск, карточка, подписка/отписка с optimistic update; ключи
-i18n RU+EN синхронны). Для dev-сценария — `npm run dev:auth` (валидный
-квиток initData, см. miniapp/AGENTS.md). Далее — этап 4 (интеграция с
-ботом). Стек зафиксирован — как в `admin/`
+Статус: **этапы 1 (каркас), 2 (cmd/miniapi), 3 (экраны MVP) и 4 (интеграция
+с ботом) выполнены** — приёмки зелёные (этап 3: полный сценарий в dev-режиме
+против живого miniapi; этап 4: go build/vet/test + tsc/biome/build, deep
+link `?startapp=<id>` в dev-браузере открывает карточку, нечисловой
+параметр игнорируется; приёмка на устройстве (кнопка меню) — после
+этапа 5, когда появится HTTPS-URL). Для dev-сценария — `npm run dev:auth`
+(валидный квиток initData, см. miniapp/AGENTS.md); deep link в dev-браузере
+имитируется адресом `http://localhost:5174/manga-crawler/?startapp=<id>`.
+Далее — этап 5 (деплой GitHub Pages), затем 6 и 7 (сайт с входом через
+Telegram). Стек зафиксирован — как в `admin/`
 (Vite + React 19 + TS strict + Tailwind v4 + shadcn + TanStack Query +
 i18next, без TanStack Router/Table/Hook Form — hash-роутинг, форм нет).
 
@@ -118,16 +122,27 @@ Telegram WebView ── HTTPS ──> GitHub Pages (статика miniapp/)
 Приёмка: полный сценарий в dev-режиме с mock-данными; `tsc`/линтер/build
 зелёные; ключи i18n RU+EN синхронны.
 
-### Этап 4 — интеграция с ботом
+### Этап 4 — интеграция с ботом (выполнен)
 
-- Menu Button бота → URL мини-аппа (`MINIAPP_URL`).
-- `web_app`-кнопка в результатах `/find` («Открыть в приложении»).
-- Deep links `?startapp=<manga_id>` → мини-апп открывает карточку;
-  `miniapi` отдаёт мангу по id без лишнего поиска.
+- Menu Button бота → URL мини-аппа (`MINIAPP_URL`): при старте бот вызывает
+  `setChatMenuButton` (web_app-кнопка); переменная не задана — меню команд
+  не трогается.
+- `web_app`-кнопка «Открыть в приложении» завершает клавиатуру результатов
+  `/find` (тоже только при заданном `MINIAPP_URL`).
+- Deep links `?startapp=<manga_id>` → мини-апп открывает карточку:
+  Telegram передаёт параметр в launch-параметре `tgWebAppStartParam`
+  (попадает в query загруженной страницы), роутер (`applyStartDeepLink`
+  в `src/lib/router.ts`) применяет его до первого рендера; нечисловой
+  параметр игнорируется. В dev-браузере имитация — просто `?startapp=<id>`
+  в адресе. Тесты: `TestFindResultsKeyboardWithMiniApp`,
+  `TestMiniAppButtonRow` (`internal/telegram`).
 - Тексты бота упоминают мини-апп (`/help`).
 
-Приёмка: на устройстве кнопка меню открывает приложение; deep link
-открывает карточку конкретной манги.
+Приёмка: go build/vet/test + tsc/biome/build зелёные; deep link в
+dev-браузере открывает карточку (id 45728), пустой/нечисловой параметр —
+стартовый экран. Приёмка на устройстве (кнопка меню, web_app-кнопка в
+чате) — после этапа 5: web_app требует HTTPS, без продового URL
+`MINIAPP_URL` остаётся пустым.
 
 ### Этап 5 — деплой GitHub Pages
 
@@ -147,6 +162,40 @@ Telegram WebView ── HTTPS ──> GitHub Pages (статика miniapp/)
 - Обновить корневой `AGENTS.md` (строка miniapp) и `backend/README.md`.
 - Ручной чек-лист: RU/EN, тёмная/светлая тема, iOS + Android + Desktop
   Telegram, оффлайн-ошибки, истёкший `initData` (переоткрытие).
+
+### Этап 7 — работа через сайт с входом через Telegram (Login Widget)
+
+Приложение уже открывается в любом браузере (SPA на Pages); вне Telegram
+не работает только аутентификация (initData не существует → 401).
+Добавить официальный Telegram Login Widget — сайт показывает кнопку
+«Войти через Telegram», виджет отдаёт JSON пользователя + `auth_date` +
+`hash`.
+
+- **Фронтенд**: экран входа (показывается вне Telegram), подключение
+  скрипта виджета; `client.ts` выбирает квиток: в Telegram — `initData`,
+  на сайте — payload виджета (в памяти сессии).
+- **miniapi**: вторая функция валидации рядом с `validateInitData` —
+  **другая математика**: `hash = HMAC_SHA256(data-check-string,
+  key = SHA256(bot_token))` (у initData ключ = `HMAC(bot_token,
+  "WebAppData")`). Middleware принимает оба заголовка; upsert в
+  `chat_users` и порог `MINIAPI_INITDATA_MAX_AGE` — без изменений;
+  CORS не трогается (origin тот же).
+- **Спека**: второй securityScheme в `openapi-miniapp.yaml`, регенерация
+  типов и генерата.
+- **Тесты**: юнит-тесты на обе функции валидации (закрывает известный
+  пробел; смотри ловушку в истории: порядок аргументов HMAC проверять по
+  докам Telegram, не по «работает же»).
+- **BotFather** (ручной шаг): `/setdomain` для бота с доменом
+  `SemenovDmitry.github.io` — без этого виджет на домене откажется
+  работать.
+
+Приёмка: в обычном браузере (не Telegram) экран входа → вход через
+виджет → поиск/подписки работают тем же пользователем `chat_users`.
+
+Альтернатива (отклонена на данный момент): QR-бридж через бота как
+WhatsApp Web — требует сессий в БД (миграция, которой план осознанно
+избегает) и эндпоинта поллинга; вернуться, если UX oauth-попапа не
+устроит.
 
 ## Что не входит (осознанно)
 

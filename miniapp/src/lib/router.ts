@@ -49,6 +49,22 @@ export function navigate(route: Route) {
   window.location.hash = routeToHash(route)
 }
 
+/**
+ * Deep link на мини-апп `t.me/<bot>?startapp=<manga_id>`: Telegram передаёт
+ * параметр в launch-параметре `tgWebAppStartParam` (оказывается в query
+ * загруженной страницы). `startapp` — то же самое, удобно в dev-браузере.
+ * Вызывается до первого рендера, чтобы приложение открылось сразу
+ * на карточке; нечисловой параметр игнорируется — останется стартовый экран.
+ */
+export function applyStartDeepLink(): void {
+  const params = new URLSearchParams(window.location.search)
+  const startParam = params.get("tgWebAppStartParam") ?? params.get("startapp")
+  if (!startParam || !/^\d+$/.test(startParam)) {
+    return
+  }
+  navigate({ name: "manga", mangaId: startParam })
+}
+
 function subscribe(onChange: () => void) {
   window.addEventListener("hashchange", onChange)
   return () => window.removeEventListener("hashchange", onChange)

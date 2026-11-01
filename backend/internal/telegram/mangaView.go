@@ -89,9 +89,11 @@ func formatFindResults(query string, results []storage.Manga) string {
 	return sb.String()
 }
 
-// findResultsKeyboard строит inline-клавиатуру: кнопка на каждый результат.
-func findResultsKeyboard(results []storage.Manga) *InlineKeyboardMarkup {
-	rows := make([][]InlineKeyboardButton, 0, len(results))
+// findResultsKeyboard строит inline-клавиатуру: кнопка подписки на каждый
+// результат; при заданном miniAppURL — завершающий ряд с web_app-кнопкой
+// «Открыть в приложении».
+func findResultsKeyboard(results []storage.Manga, miniAppURL string) *InlineKeyboardMarkup {
+	rows := make([][]InlineKeyboardButton, 0, len(results)+1)
 
 	for i, manga := range results {
 		rows = append(rows, []InlineKeyboardButton{{
@@ -100,7 +102,21 @@ func findResultsKeyboard(results []storage.Manga) *InlineKeyboardMarkup {
 		}})
 	}
 
+	if row := miniAppButtonRow(miniAppURL); row != nil {
+		rows = append(rows, row)
+	}
+
 	return &InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+// miniAppButtonRow — ряд с web_app-кнопкой открытия мини-аппа в контексте
+// чата; nil, если URL не задан (кнопка не добавляется).
+func miniAppButtonRow(url string) []InlineKeyboardButton {
+	if url == "" {
+		return nil
+	}
+
+	return []InlineKeyboardButton{{Text: textOpenInAppButton, WebApp: &WebAppInfo{URL: url}}}
 }
 
 // subscriptionsKeyboard строит клавиатуру отписки для списка подписок.

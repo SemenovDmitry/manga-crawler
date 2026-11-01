@@ -14,11 +14,12 @@ type Doer interface {
 }
 
 type Bot struct {
-	Token  string
-	ChatID string
-	Client Doer
-	BotURL string
-	Store  *storage.Store
+	Token      string
+	ChatID     string
+	MiniAppURL string
+	Client     Doer
+	BotURL     string
+	Store      *storage.Store
 }
 
 type MessageRequest struct {
@@ -47,8 +48,28 @@ type AnswerCallbackQueryRequest struct {
 
 // InlineKeyboardButton кнопка inline-клавиатуры.
 type InlineKeyboardButton struct {
-	Text         string `json:"text"`
-	CallbackData string `json:"callback_data"`
+	Text         string      `json:"text"`
+	CallbackData string      `json:"callback_data,omitempty"`
+	WebApp       *WebAppInfo `json:"web_app,omitempty"`
+}
+
+// WebAppInfo — ссылка на мини-приложение (web_app-кнопки и кнопка меню).
+type WebAppInfo struct {
+	URL string `json:"url"`
+}
+
+// MenuButton — кнопка меню бота слева от поля ввода; type = "web_app"
+// открывает мини-приложение.
+type MenuButton struct {
+	Type   string      `json:"type"`
+	Text   string      `json:"text,omitempty"`
+	WebApp *WebAppInfo `json:"web_app,omitempty"`
+}
+
+// SetChatMenuButtonRequest запрос на установку кнопки меню по умолчанию
+// (без chat_id — для всех чатов).
+type SetChatMenuButtonRequest struct {
+	MenuButton *MenuButton `json:"menu_button"`
 }
 
 // InlineKeyboardMarkup inline-клавиатура (ряды кнопок).

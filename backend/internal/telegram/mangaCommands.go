@@ -37,7 +37,7 @@ func (bot *Bot) handleFind(chatID int64, query string) {
 		chatID,
 		formatFindResults(query, results),
 		true,
-		findResultsKeyboard(results),
+		findResultsKeyboard(results, bot.MiniAppURL),
 	)
 }
 
