@@ -125,24 +125,37 @@ func (s *Store) GetMangaState(sourceID int, urlPart string) (MangaState, bool, e
 	return state, true, nil
 }
 
+// KeepChaptersCount — маркер chaptersCount для UpsertManga: главы при этом
+// проходе получить не удалось (временный сбой API догрузки). Прежние
+// chapters_count и latest_chapter сохраняются — иначе сбой выглядел бы как
+// исчезновение глав, а на следующем удачном проходе весь список вернулся
+// бы подписчикам как «новые» главы. Для новой манги записывается 0.
+const KeepChaptersCount = -1
+
 // UpsertManga создаёт запись манги или обновляет её данные, возвращает ID.
 // Пустой publicationStatus означает «статус не определён»: при вставке
 // используется ongoing, при обновлении прежнее значение сохраняется —
 // чтобы случайная правка вёрстки не «оживляла» завершённую мангу.
+// chaptersCount = KeepChaptersCount сохраняет прежние главы (chapters_count,
+// latest_chapter), остальные поля обновляются как обычно.
 func (s *Store) UpsertManga(
 	sourceID int, urlPart, title, altTitles, latestChapter string, publicationStatus PublicationStatus, chaptersCount int,
 ) (int64, error) {
 	const query = `
 		INSERT INTO manga (parse_source_id, url, title, alt_titles, latest_chapter, publication_status, chapters_count, last_check_at)
-		VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'ongoing'), $7, now())
+		VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'ongoing'), GREATEST($7, 0), now())
 		ON CONFLICT (parse_source_id, url) DO UPDATE SET
 			title              = EXCLUDED.title,
 			alt_titles         = EXCLUDED.alt_titles,
-			latest_chapter     = EXCLUDED.latest_chapter,
 			publication_status = CASE
 				WHEN EXCLUDED.publication_status <> 'ongoing' THEN EXCLUDED.publication_status
 				ELSE manga.publication_status END,
-			chapters_count     = EXCLUDED.chapters_count,
+			chapters_count     = CASE
+				WHEN EXCLUDED.chapters_count >= 0 THEN EXCLUDED.chapters_count
+				ELSE manga.chapters_count END,
+			latest_chapter     = CASE
+				WHEN EXCLUDED.chapters_count >= 0 THEN EXCLUDED.latest_chapter
+				ELSE manga.latest_chapter END,
 			last_check_at      = now(),
 			updated_at         = now()
 		RETURNING id`

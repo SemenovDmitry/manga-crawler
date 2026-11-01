@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -127,8 +128,12 @@ func (fakeDriver) MangaURLPart(rawURL string) (string, error) {
 // паникуют — тест упадёт громко, если сущность начнёт звать лишнее.
 type fakeRepo struct {
 	repo
-	states  map[string]storage.MangaState
-	upserts []string
+	states map[string]storage.MangaState
+
+	upserts             []string
+	upsertChaptersCount []int
+	upsertLatest        []string
+	notifications       []string
 }
 
 func (f *fakeRepo) GetMangaState(_ int, urlPart string) (storage.MangaState, bool, error) {
@@ -136,9 +141,18 @@ func (f *fakeRepo) GetMangaState(_ int, urlPart string) (storage.MangaState, boo
 	return st, ok, nil
 }
 
-func (f *fakeRepo) UpsertManga(_ int, urlPart string, _, _, _ string, _ storage.PublicationStatus, _ int) (int64, error) {
+func (f *fakeRepo) UpsertManga(_ int, urlPart string, _, _, latest string, _ storage.PublicationStatus, chaptersCount int) (int64, error) {
 	f.upserts = append(f.upserts, urlPart)
+	f.upsertChaptersCount = append(f.upsertChaptersCount, chaptersCount)
+	f.upsertLatest = append(f.upsertLatest, latest)
 	return int64(len(f.upserts)), nil
+}
+
+func (f *fakeRepo) SubscriberChatIDs(int64) ([]int64, error) { return []int64{77}, nil }
+
+func (f *fakeRepo) EnqueueNotification(_, _ int64, text string) error {
+	f.notifications = append(f.notifications, text)
+	return nil
 }
 
 // ——— автоотключение источника при ошибках парсинга ———
@@ -266,13 +280,13 @@ func TestProcessNewURLsSuccessResetsFailureStreak(t *testing.T) {
 	}
 
 	urls := []string{
-		srv.URL + "/manga/bad1", // серия 1
-		srv.URL + "/manga/bad2", // серия 2
-		srv.URL + "/manga/good", // успех — серия сброшена
-		srv.URL + "/manga/bad3", // серия 1
-		srv.URL + "/manga/bad4", // серия 2
-		srv.URL + "/manga/bad5", // серия 3 — порог, отключение
-		srv.URL + "/manga/after",// после отключения не парсится
+		srv.URL + "/manga/bad1",  // серия 1
+		srv.URL + "/manga/bad2",  // серия 2
+		srv.URL + "/manga/good",  // успех — серия сброшена
+		srv.URL + "/manga/bad3",  // серия 1
+		srv.URL + "/manga/bad4",  // серия 2
+		srv.URL + "/manga/bad5",  // серия 3 — порог, отключение
+		srv.URL + "/manga/after", // после отключения не парсится
 	}
 
 	_, err := c.processNewURLs(context.Background(), src, "Тест", urls, urlSet{})
@@ -351,6 +365,316 @@ func TestQueueNotifierServiceMessageWithoutOwner(t *testing.T) {
 }
 
 // ——— processNewURLs ———
+
+// fakeChapterDriver — драйвер с догрузкой глав из «API»: главы карточки
+// плюс apiChapters; loaderFails имитирует сбой догрузки (HTTP-ошибка API).
+type fakeChapterDriver struct {
+	fakeDriver
+	apiChapters []parsers.Chapter
+	loaderFails bool
+}
+
+func (d fakeChapterDriver) LoadChapters(_ context.Context, _ parsers.PageLoader, _ string, card *parsers.MangaCard) error {
+	if d.loaderFails {
+		return errors.New("главы из API недоступны: HTTP 503 от api.example.info")
+	}
+	card.Chapters = append(card.Chapters, d.apiChapters...)
+	return nil
+}
+
+func TestProcessMangaKeepsChaptersOnLoadError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("<html>карточка</html>"))
+	}))
+	defer srv.Close()
+
+	newCrawler := func() (*Crawler, *fakeRepo) {
+		store := &fakeRepo{states: map[string]storage.MangaState{
+			"a": {MangaID: 10, LatestChapter: "5", ChaptersCount: 7},
+		}}
+		return New(store, Config{}), store
+	}
+	src := func(d parsers.SourceDriver) crawlTarget {
+		return crawlTarget{source: storage.Source{ID: 1, Name: "test", BaseURL: srv.URL}, driver: d}
+	}
+
+	t.Run("сбой догрузки не затирает главы в БД", func(t *testing.T) {
+		c, store := newCrawler()
+		target := src(fakeChapterDriver{loaderFails: true})
+
+		if err := c.processManga(context.Background(), target, srv.URL+"/manga/a"); err != nil {
+			t.Fatalf("processManga: неожиданная ошибка: %v", err)
+		}
+		if len(store.upsertChaptersCount) != 1 {
+			t.Fatalf("сохранений: %d, ожидалось 1", len(store.upsertChaptersCount))
+		}
+		if got := store.upsertChaptersCount[0]; got != storage.KeepChaptersCount {
+			t.Errorf("chaptersCount=%d, ожидался маркер storage.KeepChaptersCount (%d)", got, storage.KeepChaptersCount)
+		}
+		// Уведомлений нет: главы неполные, но и новых среди них нет
+		// (latest в БД «5», в карточке 1–2).
+		if len(store.notifications) != 0 {
+			t.Errorf("уведомлений: %d, ожидалось 0: %v", len(store.notifications), store.notifications)
+		}
+	})
+
+	t.Run("успешная догрузка сохраняет главы как обычно", func(t *testing.T) {
+		c, store := newCrawler()
+		target := src(fakeChapterDriver{apiChapters: []parsers.Chapter{{Number: "6"}}})
+
+		if err := c.processManga(context.Background(), target, srv.URL+"/manga/a"); err != nil {
+			t.Fatalf("processManga: неожиданная ошибка: %v", err)
+		}
+		// 2 главы карточки + 1 из API.
+		if got := store.upsertChaptersCount[0]; got != 3 {
+			t.Errorf("chaptersCount=%d, ожидалось 3", got)
+		}
+		if got := store.upsertLatest[0]; got != "6" {
+			t.Errorf("latestChapter=%q, ожидалось %q", got, "6")
+		}
+		// Глава 6 новее сохранённой «5» — уведомление ставится в очередь.
+		if len(store.notifications) != 1 {
+			t.Errorf("уведомлений: %d, ожидалось 1", len(store.notifications))
+		}
+	})
+}
+
+func TestProcessNewURLsCountsFailures(t *testing.T) {
+	// HTTP-сбой карточки учитывается в failed: сводка прохода видит,
+	// сколько карточек выпало (см. logCardFailures).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "bad") {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("<html>карточка</html>"))
+	}))
+	defer srv.Close()
+
+	c := New(&fakeRepo{states: map[string]storage.MangaState{}}, Config{})
+	src := crawlTarget{source: storage.Source{ID: 1, Name: "test", BaseURL: srv.URL}, driver: fakeDriver{}}
+
+	urls := []string{srv.URL + "/manga/a", srv.URL + "/manga/bad", srv.URL + "/manga/b"}
+	res, err := c.processNewURLs(context.Background(), src, "Тест", urls, urlSet{})
+	if err != nil {
+		t.Fatalf("processNewURLs: неожиданная ошибка: %v", err)
+	}
+	if res.processed != 2 || res.failed != 1 {
+		t.Errorf("processed=%d failed=%d, ожидалось 2/1", res.processed, res.failed)
+	}
+}
+
+// ——— остановка прохода серией ошибок ———
+
+func TestProcessNewURLsStopsOnConsecutiveHTTPErrors(t *testing.T) {
+	// Серия HTTP-сбоев останавливает проход (errPassAborted), но источник
+	// остаётся включённым: сетевые сбои проходят сами, в отличие от
+	// сломанной разметки. Хозяину уходит одно сообщение на эпизод
+	// недоступности — после успешной карточки эпизод начинается заново.
+	var healthy atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if healthy.Load() {
+			_, _ = w.Write([]byte("<html>карточка</html>"))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	store := &disablingRepo{}
+	c := New(store, Config{CardFailureLimit: 5, OwnerChatID: "42"})
+	src := crawlTarget{source: storage.Source{ID: 3, Name: "down", BaseURL: srv.URL}, driver: fakeDriver{}}
+
+	urls := func(prefix string) []string {
+		return []string{
+			srv.URL + "/manga/" + prefix + "a", srv.URL + "/manga/" + prefix + "b",
+			srv.URL + "/manga/" + prefix + "c", srv.URL + "/manga/" + prefix + "d",
+			srv.URL + "/manga/" + prefix + "e", srv.URL + "/manga/" + prefix + "f",
+			srv.URL + "/manga/" + prefix + "g", srv.URL + "/manga/" + prefix + "h",
+		}
+	}
+
+	res, err := c.processNewURLs(context.Background(), src, "Тест", urls("x"), urlSet{})
+	var abortedErr errPassAborted
+	if !errors.As(err, &abortedErr) {
+		t.Fatalf("ожидалась errPassAborted, получено: %v", err)
+	}
+	if res.failed != 5 || res.processed != 0 {
+		t.Errorf("failed=%d processed=%d, ожидалось 5/0", res.failed, res.processed)
+	}
+	if len(store.disabledIDs) != 0 {
+		t.Errorf("источник не должен отключаться от HTTP-сбоев: %v", store.disabledIDs)
+	}
+
+	// Сообщение хозяину: имя источника и суть, один раз.
+	if len(store.serviceText) != 1 {
+		t.Fatalf("сервисных сообщений: %d, ожидалось 1: %v", len(store.serviceText), store.serviceText)
+	}
+	text := store.serviceText[0]
+	for _, want := range []string{"down", "проход остановлен", "chat=42"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("в сообщении нет %q:\n%s", want, text)
+		}
+	}
+
+	// Повторный проход, сайт ещё лежит: остановка повторяется, сообщение — нет.
+	if _, err := c.processNewURLs(context.Background(), src, "Тест", urls("y"), urlSet{}); err == nil {
+		t.Fatal("ожидалась повторная остановка прохода")
+	}
+	if len(store.serviceText) != 1 {
+		t.Errorf("дублирующее сообщение на тот же эпизод: %v", store.serviceText)
+	}
+
+	// Сайт ожил: успешная карточка закрывает эпизод...
+	healthy.Store(true)
+	if _, err := c.processNewURLs(context.Background(), src, "Тест", urls("y"), urlSet{}); err != nil {
+		t.Fatalf("восстановление: неожиданная ошибка: %v", err)
+	}
+
+	// ...и следующий эпизод недоступности снова уведомляет.
+	healthy.Store(false)
+	if _, err := c.processNewURLs(context.Background(), src, "Тест", urls("z"), urlSet{}); err == nil {
+		t.Fatal("ожидалась остановка прохода после нового эпизода")
+	}
+	if len(store.serviceText) != 2 {
+		t.Errorf("сообщений после нового эпизода: %d, ожидалось 2", len(store.serviceText))
+	}
+}
+
+// staleRepo — мок хранилища со списком устаревших подписок.
+type staleRepo struct {
+	repo
+	stale []storage.Manga
+}
+
+func (r *staleRepo) GetMangaState(int, string) (storage.MangaState, bool, error) {
+	return storage.MangaState{}, false, nil
+}
+
+func (r *staleRepo) UpsertManga(_ int, urlPart string, _, _, _ string, _ storage.PublicationStatus, _ int) (int64, error) {
+	return 1, nil
+}
+
+func (r *staleRepo) GetStaleSubscribedManga(int, int, int) ([]storage.Manga, error) {
+	return r.stale, nil
+}
+
+func TestCrawlSourceUpdatesStopsOnConsecutiveErrors(t *testing.T) {
+	// Инкрементальный проход тоже останавливается серией ошибок:
+	// остаток списка уйдёт на следующий проход (last_check_at не обновлён).
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	var stale []storage.Manga
+	for i := 0; i < 7; i++ {
+		stale = append(stale, storage.Manga{URL: fmt.Sprintf("manga/%d", i)})
+	}
+	c := New(&staleRepo{stale: stale}, Config{CardFailureLimit: 5})
+	src := crawlTarget{source: storage.Source{ID: 4, Name: "inc", BaseURL: srv.URL}, driver: fakeDriver{}}
+
+	err := c.crawlSourceUpdates(context.Background(), src)
+	var abortedErr errPassAborted
+	if !errors.As(err, &abortedErr) {
+		t.Fatalf("ожидалась errPassAborted, получено: %v", err)
+	}
+	if requests != 15 {
+		t.Errorf("запросов: %d, ожидалось 15 (5 карточек по 3 попытки)", requests)
+	}
+}
+
+// ——— карточка из API (parsers.CardRequestProvider) ———
+
+// apiCardDriver — драйвер, берущий карточку из «API»: CardRequest
+// указывает краулеру адрес карточки и заголовок Site-Id.
+type apiCardDriver struct {
+	fakeDriver
+	cardBase string // адрес «API карточек»
+}
+
+func (d apiCardDriver) CardRequest(urlPart string) (string, []parsers.ExtraHeader) {
+	return d.cardBase + "/api/manga/" + urlPart, []parsers.ExtraHeader{
+		{Key: "Site-Id", Value: "1"},
+	}
+}
+
+func TestProcessMangaCardViaAPI(t *testing.T) {
+	// Драйвер с CardRequestProvider: страница сайта не запрашивается,
+	// карточка берётся по адресу из CardRequest с его заголовками.
+	var siteRequests, cardRequests int
+	var gotSiteID string
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		siteRequests++
+		_, _ = w.Write([]byte("<html>страница сайта</html>"))
+	}))
+	defer site.Close()
+	cardAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cardRequests++
+		gotSiteID = r.Header.Get("Site-Id")
+		_, _ = w.Write([]byte(`<html>json карточки</html>`))
+	}))
+	defer cardAPI.Close()
+
+	store := &fakeRepo{states: map[string]storage.MangaState{}}
+	c := New(store, Config{})
+	src := crawlTarget{
+		source: storage.Source{ID: 2, Name: "api", BaseURL: site.URL},
+		driver: apiCardDriver{cardBase: cardAPI.URL},
+	}
+
+	if err := c.processManga(context.Background(), src, site.URL+"/manga/a"); err != nil {
+		t.Fatalf("processManga: неожиданная ошибка: %v", err)
+	}
+
+	if siteRequests != 0 {
+		t.Errorf("запросов к странице сайта: %d, ожидалось 0", siteRequests)
+	}
+	if cardRequests != 1 {
+		t.Errorf("запросов к API карточек: %d, ожидался 1", cardRequests)
+	}
+	if gotSiteID != "1" {
+		t.Errorf("Site-Id не дошёл до API: %q", gotSiteID)
+	}
+	if len(store.upserts) != 1 {
+		t.Errorf("карточка не сохранена: %v", store.upserts)
+	}
+}
+
+func TestProcessMangaNotFoundSkipped(t *testing.T) {
+	// 404 карточки — пропуск, а не сбой: тайтл удалён (или API ещё не
+	// проиндексировал свежак, как у mangalib). Серия таких карточек не
+	// должна останавливать проход.
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	store := &fakeRepo{states: map[string]storage.MangaState{}}
+	c := New(store, Config{CardFailureLimit: 3})
+	src := crawlTarget{source: storage.Source{ID: 6, Name: "gone", BaseURL: srv.URL}, driver: fakeDriver{}}
+
+	urls := []string{srv.URL + "/manga/a", srv.URL + "/manga/b", srv.URL + "/manga/c", srv.URL + "/manga/d", srv.URL + "/manga/e"}
+	res, err := c.processNewURLs(context.Background(), src, "Тест", urls, urlSet{})
+	if err != nil {
+		t.Fatalf("processNewURLs: 404-карточки не должны останавливать проход: %v", err)
+	}
+	// 404-пропуск — ни processed, ни failed (errCardSkipped); сохранений нет.
+	if res.failed != 0 || res.processed != 0 {
+		t.Errorf("failed=%d processed=%d, ожидалось 0/0", res.failed, res.processed)
+	}
+	if len(store.upserts) != 0 {
+		t.Errorf("сохранений быть не должно: %v", store.upserts)
+	}
+	// Одна попытка на карточку: 404 не ретраится.
+	if attempts != len(urls) {
+		t.Errorf("запросов: %d, ожидалось %d", attempts, len(urls))
+	}
+}
 
 func TestProcessNewURLs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

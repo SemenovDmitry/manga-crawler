@@ -9,23 +9,9 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/crawler/parsers"
 )
 
-// Тестовый фрагмент повторяет реальный SSR-ответ карточки с роботным
-// User-Agent (см. .tmp-googlebot/card_googlebot.html): JSON-LD
-// (BreadcrumbList + CreativeWorkSeries) и текстовый инфоблок с метками
-// «Статус»/«Глав». Классы-хеши bel_* в фикстуре сохранены как в дампе,
-// но парсер на них не завязан.
-const mangalibCardFixture = `
-<!DOCTYPE html><html lang="ru"><head><title>Я победил Владыку демонов, пожалуй, пора домой / Maou taoshita shi kaeru ka читать мангу онлайн • MangaLIB</title>
-<script type="application/ld+json">[{"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Каталог","item":"https://mangalib.me/ru/catalog"},{"@type":"ListItem","position":3,"name":"Я победил Владыку демонов, пожалуй, пора домой","item":"https://mangalib.me/ru/manga/277246--maou-taoshita-shi-kaeru-ka"}]},{"@context":"https://schema.org","@type":"CreativeWorkSeries","url":"https://mangalib.me/ru/manga/277246--maou-taoshita-shi-kaeru-ka","name":"Я победил Владыку демонов, пожалуй, пора домой","headline":"Я победил Владыку демонов, пожалуй, пора домой","alternativeHeadline":["«魔王倒したし帰るか»","Maou taoshita shi kaeru ka","I've Defeated the Demon Lord, so I Guess I'll Head Home"],"image":"https://cover.imglib.info/uploads/cover/maou-taoshita-shi-kaeru-ka/cover/65229be8.jpg","identifier":"Манга","isFamilyFriendly":false,"inLanguage":"Russian","typicalAgeRange":"18+","copyrightYear":2026}]</script>
-</head><body>
-<h1 class="avz_av1"><!----><span>Я победил Владыку демонов, пожалуй, пора домой</span></h1>
-<div class="bel_y"><div class="bel_ca">Выпуск</div><div class="bel_cu"><span>2026 г.</span></div></div>
-<div class="bel_y"><div class="bel_ca">Страна</div><div class="bel_cu"><span>—</span></div></div>
-<div class="bel_y"><div class="bel_ca">Глав</div><div class="bel_cu"><span>2</span></div></div>
-<a href="/ru/catalog?status%5B%5D=1" class="bel_y"><div class="bel_ca">Статус</div><div class="bel_cu"><span>Онгоинг</span></div></a>
-<a href="/ru/catalog?scanlate_status%5B%5D=1" class="bel_y"><div class="bel_ca">Перевод</div><div class="bel_cu"><span>Продолжается</span></div></a>
-</body></html>
-`
+// Тестовый ответ повторяет реальный JSON GET api.imglib.info/api/manga/{id}--{slug}
+// (заголовки Referer + Site-Id: 1, проверено 2026-11-01).
+const mangalibCardFixture = `{"data":{"id":274927,"name":"Кот Баюн","rus_name":"Кот Баюн","eng_name":"The Cat Bayun","model":"manga","slug":"kot-baiun","slug_url":"274927--kot-baiun","status":{"id":2,"label":"Завершён"},"type":{"id":8,"label":"Руманга"}}}`
 
 func TestMangalibCard(t *testing.T) {
 	driver := NewParser()
@@ -34,56 +20,40 @@ func TestMangalibCard(t *testing.T) {
 		t.Fatalf("ошибка парсинга: %v", err)
 	}
 
-	if card.Title != "Я победил Владыку демонов, пожалуй, пора домой" {
+	if card.Title != "Кот Баюн" {
 		t.Errorf("название: получено %q", card.Title)
 	}
-
-	wantAlt := "«魔王倒したし帰るか» / Maou taoshita shi kaeru ka / I've Defeated the Demon Lord, so I Guess I'll Head Home"
-	if card.AltTitles != wantAlt {
-		t.Errorf("альт. названия:\n  получено %q\n  ожидалось %q", card.AltTitles, wantAlt)
+	if card.AltTitles != "The Cat Bayun" {
+		t.Errorf("альт. название: получено %q", card.AltTitles)
 	}
-
-	if card.PublicationStatus != "ongoing" {
-		t.Errorf("статус публикации: получено %q, ожидалось %q", card.PublicationStatus, "ongoing")
+	if card.PublicationStatus != "completed" {
+		t.Errorf("статус публикации: получено %q, ожидалось %q", card.PublicationStatus, "completed")
 	}
-
 	if len(card.Chapters) != 0 {
 		t.Errorf("глав: получено %d, ожидалось 0 (список глав догружается из API)", len(card.Chapters))
 	}
 }
 
-func TestMangalibCardSPAStub(t *testing.T) {
-	// SPA-каркас (8.4 КБ), который сайт отдаёт браузерному UA:
-	// ни JSON-LD, ни h1 — страница должна уйти в bad-page дамп.
-	spaStub := `<!DOCTYPE html><html lang="ru" data-id="1"><head><meta charset="utf-8"></head><body><div id="app"></div><script type="module" src="https://mangalib.me/build/assets/main.js"></script></body></html>`
-
+func TestMangalibCardBadBody(t *testing.T) {
+	// Битый JSON или пустой ответ — ошибка (сигнал, что API-стратегия сломалась).
 	driver := NewParser()
-	if _, err := driver.ParseMangaCard([]byte(spaStub)); err == nil {
-		t.Error("SPA-каркас должен возвращать ошибку (сигнал, что UA-стратегия сломалась)")
+	for _, body := range []string{"", "<html>SPA-каркас</html>", `{"data":{}}`} {
+		if _, err := driver.ParseMangaCard([]byte(body)); err == nil {
+			t.Errorf("тело %q должно возвращать ошибку (нет названия)", body)
+		}
 	}
 }
 
-func TestMangalibCardFallbackH1(t *testing.T) {
-	// JSON-LD сменил формат — карточка собирается из h1 SSR-разметки.
-	page := `<html><body><h1 class="avz_av1"><span>Две вишни</span></h1></body></html>`
-
+func TestMangalibAltEqualsTitle(t *testing.T) {
+	// eng_name совпадает с названием — альтернативное не пишется.
+	body := `{"data":{"name":"One Piece","rus_name":"One Piece","eng_name":"One Piece","status":{"label":"Онгоинг"}}}`
 	driver := NewParser()
-	card, err := driver.ParseMangaCard([]byte(page))
+	card, err := driver.ParseMangaCard([]byte(body))
 	if err != nil {
 		t.Fatalf("ошибка парсинга: %v", err)
 	}
-	if card.Title != "Две вишни" {
-		t.Errorf("название: получено %q, ожидалось %q", card.Title, "Две вишни")
-	}
-	if card.PublicationStatus != "" {
-		t.Errorf("статус: получено %q, ожидалось пусто", card.PublicationStatus)
-	}
-}
-
-func TestMangalibCardNotACard(t *testing.T) {
-	driver := NewParser()
-	if _, err := driver.ParseMangaCard([]byte("<html><body>Error 404</body></html>")); err == nil {
-		t.Error("страница без карточки должна возвращать ошибку")
+	if card.AltTitles != "" {
+		t.Errorf("альт. название: получено %q, ожидалось пусто", card.AltTitles)
 	}
 }
 
@@ -98,16 +68,16 @@ func TestMangalibURLs(t *testing.T) {
 		{"https://mangalib.me/ru/manga/175317--futari-de-cherry", true},
 		{"https://mangalib.me/ru/manga/175317--futari-de-cherry/", true}, // трейлинг-слэш
 		{"https://mangalib.me/ru/manga/904--gingitsune", true},
-		{"https://mangalib.me/ru/manga/277246--maou-taoshita-shi-kaeru-ka?ui=1", true}, // query отсекается
-		{"https://mangalib.me/ru/manga/--no-id", false},                                // нет числового id
-		{"https://mangalib.me/ru/manga/277246--", false},                               // нет слага
-		{"https://mangalib.me/ru/manga/abc--slug", false},                              // id не число
-		{"https://mangalib.me/ru/manga", false},                                        // без карточки
-		{"https://mangalib.me/ru/manga/", false},                                       // без карточки
-		{"https://mangalib.me/ru/catalog", false},                                      // каталог
+		{"https://mangalib.me/ru/manga/277246--maou-taoshita-shi-kaeru-ka?ui=1", true},    // query отсекается
+		{"https://mangalib.me/ru/manga/--no-id", false},                                   // нет числового id
+		{"https://mangalib.me/ru/manga/277246--", false},                                  // нет слага
+		{"https://mangalib.me/ru/manga/abc--slug", false},                                 // id не число
+		{"https://mangalib.me/ru/manga", false},                                           // без карточки
+		{"https://mangalib.me/ru/manga/", false},                                          // без карточки
+		{"https://mangalib.me/ru/catalog", false},                                         // каталог
 		{"https://mangalib.me/ru/277246--maou-taoshita-shi-kaeru-ka/read/v01/c01", false}, // читалка
-		{"https://mangalib.me/ru/book/123--some-book", false},                          // ранобэ (в sitemap не попадают, но проверим)
-		{"https://mangalib.me/en/manga/904--gingitsune", false},                        // чужая локаль
+		{"https://mangalib.me/ru/book/123--some-book", false},                             // ранобэ (в sitemap не попадают, но проверим)
+		{"https://mangalib.me/en/manga/904--gingitsune", false},                           // чужая локаль
 		{"https://mangalib.me/", false},
 		{"https://1.seimanga.me/asura_2024", false}, // чужой движок
 	}
@@ -132,20 +102,36 @@ func TestMangalibURLs(t *testing.T) {
 	}
 }
 
-// Роботный UA: сайт отдаёт SSR только роботам (проверено probe).
-func TestMangalibCardUserAgent(t *testing.T) {
-	var driver parsers.SourceDriver = NewParser()
-	ua, ok := driver.(parsers.CardUserAgent)
-	if !ok {
-		t.Fatal("драйвер mangalib должен реализовывать parsers.CardUserAgent")
+// CardRequest: адрес API-карточки по id--slug и обязательные заголовки
+// (Referer — иначе 403, Site-Id — иначе 404).
+func TestMangalibCardRequest(t *testing.T) {
+	var driver parsers.CardRequestProvider = NewParser()
+
+	rawURL, headers := driver.CardRequest("ru/manga/274927--kot-baiun")
+	if rawURL != "https://api.imglib.info/api/manga/274927--kot-baiun" {
+		t.Errorf("адрес карточки: %q", rawURL)
 	}
-	if !strings.Contains(ua.CardUserAgent(), "Googlebot") {
-		t.Errorf("CardUserAgent: получено %q, ожидался роботный UA", ua.CardUserAgent())
+
+	got := map[string]string{}
+	for _, h := range headers {
+		got[h.Key] = h.Value
+	}
+	if got["Referer"] != "https://mangalib.me/" {
+		t.Errorf("Referer: %q, ожидалось %q", got["Referer"], "https://mangalib.me/")
+	}
+	if got["Site-Id"] != "1" {
+		t.Errorf("Site-Id: %q, ожидалось %q", got["Site-Id"], "1")
+	}
+
+	// url-часть не карточки манги — пустой адрес (краулер не должен
+	// получить мусорный запрос).
+	if u, _ := driver.CardRequest("ru/book/123--some-book"); u != "" {
+		t.Errorf("чужая url-часть: получен адрес %q, ожидался пустой", u)
 	}
 }
 
-// Статусы — значения фильтра /ru/catalog?status[] (проверено на карточках).
-func TestMangalibExtractStatus(t *testing.T) {
+// Статусы — значения фильтра /ru/catalog?status[] (совпадают с label API).
+func TestMangalibStatusFromLabel(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"Онгоинг", "ongoing"},
 		{"Завершён", "completed"},
@@ -156,9 +142,8 @@ func TestMangalibExtractStatus(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		page := `<div class="x">Статус</div><div class="y"><span>` + tc.in + `</span></div>`
-		if got := extractStatus(page); got != tc.want {
-			t.Errorf("extractStatus(%q): получено %q, ожидалось %q", tc.in, got, tc.want)
+		if got := statusFromLabel(tc.in); got != tc.want {
+			t.Errorf("statusFromLabel(%q): получено %q, ожидалось %q", tc.in, got, tc.want)
 		}
 	}
 }
@@ -169,8 +154,10 @@ func TestMangalibLoadChapters(t *testing.T) {
 	driver := NewParser()
 
 	var calls []string
-	load := func(ctx context.Context, rawURL string) ([]byte, error) {
+	var gotHeaders []parsers.ExtraHeader
+	load := func(ctx context.Context, rawURL string, headers ...parsers.ExtraHeader) ([]byte, error) {
 		calls = append(calls, rawURL)
+		gotHeaders = headers
 		if !strings.HasSuffix(rawURL, "/api/manga/maou-taoshita-shi-kaeru-ka/chapters") {
 			t.Errorf("неожиданный запрос API: %s", rawURL)
 		}
@@ -204,6 +191,19 @@ func TestMangalibLoadChapters(t *testing.T) {
 	if len(calls) != 1 {
 		t.Errorf("запросов к API: %d, ожидался 1", len(calls))
 	}
+
+	// API отвечает 403 без Referer и 404 без Site-Id — заголовки
+	// обязаны доходить до загрузчика.
+	headers := map[string]string{}
+	for _, h := range gotHeaders {
+		headers[h.Key] = h.Value
+	}
+	if headers["Referer"] != "https://mangalib.me/" {
+		t.Errorf("Referer запроса к API: %q", headers["Referer"])
+	}
+	if headers["Site-Id"] != "1" {
+		t.Errorf("Site-Id запроса к API: %q, ожидалось %q", headers["Site-Id"], "1")
+	}
 }
 
 func TestMangalibSlugFromURLPart(t *testing.T) {
@@ -219,5 +219,10 @@ func TestMangalibSlugFromURLPart(t *testing.T) {
 		if got := slugFromURLPart(tc.in); got != tc.want {
 			t.Errorf("slugFromURLPart(%q): получено %q, ожидалось %q", tc.in, got, tc.want)
 		}
+	}
+
+	// idSlug: третий сегмент целиком, для адреса карточки в API.
+	if got := idSlugFromURLPart("ru/manga/274927--kot-baiun"); got != "274927--kot-baiun" {
+		t.Errorf("idSlugFromURLPart: получено %q", got)
 	}
 }
