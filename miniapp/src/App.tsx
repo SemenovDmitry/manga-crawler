@@ -17,7 +17,7 @@ export function App() {
   const goBack = useCallback(() => {
     window.history.back()
   }, [])
-  
+
   useBackButton(route.name === "manga", goBack)
 
   return (

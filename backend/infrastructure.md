@@ -215,9 +215,10 @@ Docker:
     TOKEN="ваш TELEGRAM_BOT_TOKEN"
     USER='{"id":777000001,"first_name":"Dev","username":"dev_user","language_code":"ru"}'
     AUTH_DATE=$(date +%s)
-    DCS="auth_date=$AUTH_DATE
-    user=$USER"
-    SECRET=$(printf 'WebAppData' | openssl dgst -sha256 -mac HMAC -macopt "key:$TOKEN" -binary | xxd -p -c 64)
+    # data-check-string: все поля квитка, кроме hash, по алфавиту, разделитель \n
+    DCS=$(printf 'auth_date=%s\nuser=%s' "$AUTH_DATE" "$USER")
+    # секрет: HMAC_SHA256(данные=bot_token, ключ="WebAppData")
+    SECRET=$(printf '%s' "$TOKEN" | openssl dgst -sha256 -mac HMAC -macopt "key:WebAppData" -binary | xxd -p -c 64)
     HASH=$(printf '%s' "$DCS" | openssl dgst -sha256 -mac HMAC -macopt "hexkey:$SECRET" | awk '{print $2}')
     INITDATA="auth_date=$AUTH_DATE&user=$(printf %s "$USER" | jq -sRr @uri)&hash=$HASH"
 

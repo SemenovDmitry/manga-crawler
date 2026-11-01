@@ -1,7 +1,10 @@
 /* Тема «Graphite» — вендорится из admin/src/styles/globals.css (значения
    копируются, источники miniapp и admin независимы). При изменении темы в
-   админке синхронизировать вручную. Отличие: группа --sidebar-* опущена —
-   в miniapp сайдбара нет. */
+   админке синхронизировать вручную. Отличия: группа --sidebar-* опущена —
+   в miniapp сайдбара нет; семантические токены берутся из CSS-переменных
+   Telegram (themeParams, см. src/lib/telegram.ts), чтобы приложение
+   следовало светлой/тёмной теме клиента; значения oklch — фолбэк для
+   окружений без Telegram (например прямой заход на Pages). */
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -10,25 +13,26 @@
 :root {
   --radius: 0.375rem;
 
-  --background: oklch(0.2 0.008 260);
-  --foreground: oklch(0.93 0.005 260);
-  --card: oklch(0.23 0.008 260);
-  --card-foreground: oklch(0.93 0.005 260);
-  --popover: oklch(0.22 0.008 260);
-  --popover-foreground: oklch(0.93 0.005 260);
-  --primary: oklch(0.62 0.1 245);
-  --primary-foreground: oklch(0.98 0.002 250);
-  --secondary: oklch(0.28 0.008 260);
-  --secondary-foreground: oklch(0.9 0.005 260);
-  --muted: oklch(0.26 0.008 260);
-  --muted-foreground: oklch(0.65 0.01 260);
-  --accent: oklch(0.3 0.01 260);
-  --accent-foreground: oklch(0.92 0.005 260);
-  --destructive: oklch(0.62 0.19 25);
-  --destructive-foreground: oklch(0.96 0.01 30);
-  --border: oklch(0.31 0.008 260);
-  --input: oklch(0.31 0.008 260);
-  --ring: oklch(0.62 0.1 245);
+  --background: var(--tg-theme-bg-color, oklch(0.2 0.008 260));
+  --foreground: var(--tg-theme-text-color, oklch(0.93 0.005 260));
+  --card: var(--tg-theme-section-bg-color, oklch(0.23 0.008 260));
+  --card-foreground: var(--tg-theme-text-color, oklch(0.93 0.005 260));
+  --popover: var(--tg-theme-section-bg-color, oklch(0.22 0.008 260));
+  --popover-foreground: var(--tg-theme-text-color, oklch(0.93 0.005 260));
+  --primary: var(--tg-theme-button-color, oklch(0.62 0.1 245));
+  --primary-foreground: var(--tg-theme-button-text-color, oklch(0.98 0.002 250));
+  --secondary: var(--tg-theme-secondary-bg-color, oklch(0.28 0.008 260));
+  --secondary-foreground: var(--tg-theme-text-color, oklch(0.9 0.005 260));
+  --muted: var(--tg-theme-secondary-bg-color, oklch(0.26 0.008 260));
+  --muted-foreground: var(--tg-theme-hint-color, oklch(0.65 0.01 260));
+  --accent: var(--tg-theme-section-bg-color, oklch(0.3 0.01 260));
+  --accent-foreground: var(--tg-theme-text-color, oklch(0.92 0.005 260));
+  --destructive: var(--tg-theme-destructive-text-color, oklch(0.62 0.19 25));
+  --destructive-foreground: var(--tg-theme-button-text-color, oklch(0.96 0.01 30));
+  --border: var(--tg-theme-section-separator-color, oklch(0.31 0.008 260));
+  --input: var(--tg-theme-section-separator-color, oklch(0.31 0.008 260));
+  --ring: var(--tg-theme-button-color, oklch(0.62 0.1 245));
+  --link: var(--tg-theme-link-color, oklch(0.7 0.12 275));
   --chart-1: oklch(0.65 0.12 245);
   --chart-2: oklch(0.7 0.1 190);
   --chart-3: oklch(0.75 0.11 80);
@@ -58,6 +62,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-link: var(--link);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);

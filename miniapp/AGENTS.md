@@ -78,6 +78,14 @@ camelCase без дефисов (`router.ts`, `telegram.ts`, `client.ts`), па�
 - `VITE_API_BASE_URL` — полный URL miniapi на проде; в dev не задан,
   работает Vite-прокси `/mini-api → localhost:8082` (порт dev-сервера —
   5174, чтобы не пересекаться с админкой).
+- `VITE_DEV_INIT_DATA` — валидный dev-квиток initData, подписанный
+  бот-токеном; создаётся скриптом `npm run dev:auth`
+  (scripts/dev-initdata.mjs, читает `../backend/.env`, пишет `.env.local`).
+  Без него запросы к miniapi получают 401 (фиктивный hash мока). Квиток
+  живёт 24 ч — перезапускать скрипт при истечении. Токен во фронт и git
+  не попадает. В файле `src/api/schema.gen.ts` — сгенерированные типы
+  OpenAPI (`npm run gen:api` из `backend/docs/openapi-miniapp.yaml`),
+  руками не править.
 
 ## Проверки перед сдачей
 

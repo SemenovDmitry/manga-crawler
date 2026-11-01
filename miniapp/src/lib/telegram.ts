@@ -22,10 +22,15 @@ import {
 
 import { changeLocale, defaultLocale, LOCALE_STORAGE_KEY, locales } from "@/i18n"
 
-/** Валидный по структуре initData-квиток (hash/signature — фиктивные).
- * Мок нужен только для dev-режима в обычном браузере: экраны работают,
- * серверная подпись не проверяется — она появится на этапе 2 (miniapi). */
+/** Dev-квиток initData. Приоритет — валидный квиток, подписанный бот-токеном
+ * (scripts/dev-initdata.mjs → .env.local): запросы через Vite-прокси проходят
+ * проверку подписи в miniapi. Фолбэк — структурно валидный квиток с
+ * фиктивным hash: годится для экранов, но API отвечает 401. */
 function mockInitData(): string {
+  const signed = import.meta.env.VITE_DEV_INIT_DATA
+  if (signed) {
+    return signed
+  }
   const user = {
     id: 777_000_001,
     first_name: "Dev",
@@ -54,8 +59,10 @@ const MOCK_THEME_PARAMS = {
   accent_text_color: "#6ab3f3",
   section_bg_color: "#181818",
   section_header_text_color: "#8774e1",
+  section_separator_color: "#2b2b2b",
   subtitle_text_color: "#aaaaaa",
   text_color: "#ffffff",
+  bottom_bar_bg_color: "#181818",
   destructive_text_color: "#ec3942",
 }
 
@@ -103,7 +110,15 @@ export function bootstrapTelegram(): boolean {
     })
   }
 
-  init()
+  // init() завершается постом iframe_ready; в dev-браузере верхнего уровня
+  // у postEvent нет моста, и этот пост бросает UnknownEnvError — хотя к тому
+  // моменту SDK уже инициализирован. В настоящем Telegram мост есть, броска
+  // не будет, поэтому глушим только здесь.
+  try {
+    init()
+  } catch {
+    // нет моста для iframe_ready — конфигурация SDK уже применена
+  }
 
   // Восстанавливаем initData из launch-параметров: из него берём и локаль
   // пользователя, и квиток для заголовка X-Telegram-Init-Data.
@@ -135,7 +150,13 @@ export function bootstrapTelegram(): boolean {
         bindViewportCssVars()
       }
       if (expandViewport.isAvailable()) {
-        expandViewport()
+        // postEvent без моста (mock-браузер, часть клиентов) бросает
+        // UnknownEnvError — развернёмость экрана не должна ронять приложение.
+        try {
+          expandViewport()
+        } catch {
+          // нет моста для postEvent — остаёмся как есть
+        }
       }
     })
   }

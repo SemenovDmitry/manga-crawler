@@ -64,7 +64,9 @@ func validateInitData(raw, botToken string, maxAge time.Duration) (TelegramUser,
 	}
 	sort.Strings(fields)
 
-	mac := hmac.New(sha256.New, hmacSHA256([]byte(botToken), []byte("WebAppData")))
+	// Секрет по докам Telegram: HMAC_SHA256(bot_token, "WebAppData"),
+	// где "WebAppData" — ключ, bot_token — данные.
+	mac := hmac.New(sha256.New, hmacSHA256([]byte("WebAppData"), []byte(botToken)))
 	mac.Write([]byte(strings.Join(fields, "\n")))
 	if !hmac.Equal([]byte(hex.EncodeToString(mac.Sum(nil))), []byte(hash)) {
 		return TelegramUser{}, errBadHash

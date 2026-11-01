@@ -1,10 +1,11 @@
 # Telegram Mini App — план работ
 
-Статус: **этапы 1 (каркас) и 2 (cmd/miniapi) выполнены** — приёмки зелёные
-(этап 1: `tsc`/линтер/`vite build` + dev с mock-данными; этап 2: curl с
-валидным/невалидным initData → 200/401). Контракт мини-аппа —
-`backend/docs/openapi-miniapp.yaml`. Далее — этап 3 (экраны MVP). Стек
-зафиксирован — как в `admin/`
+Статус: **этапы 1 (каркас), 2 (cmd/miniapi) и 3 (экраны MVP) выполнены** —
+приёмки зелёные (этап 3: полный сценарий в dev-режиме против живого
+miniapi — поиск, карточка, подписка/отписка с optimistic update; ключи
+i18n RU+EN синхронны). Для dev-сценария — `npm run dev:auth` (валидный
+квиток initData, см. miniapp/AGENTS.md). Далее — этап 4 (интеграция с
+ботом). Стек зафиксирован — как в `admin/`
 (Vite + React 19 + TS strict + Tailwind v4 + shadcn + TanStack Query +
 i18next, без TanStack Router/Table/Hook Form — hash-роутинг, форм нет).
 

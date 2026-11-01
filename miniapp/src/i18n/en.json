@@ -16,16 +16,37 @@
   "subscriptions": {
     "title": "My subscriptions",
     "empty": "No subscriptions yet",
+    "emptyHint": "Find a manga via search and press “Subscribe”",
     "unsubscribe": "Unsubscribe"
   },
   "manga": {
     "subscribe": "Subscribe",
     "unsubscribe": "Unsubscribe",
     "subscribed": "You are subscribed to updates",
-    "notFound": "Manga not found"
+    "notFound": "Manga not found",
+    "source": "Source",
+    "latestChapter": "chapter {{chapter}}",
+    "chapters_one": "{{count}} chapter",
+    "chapters_few": "{{count}} chapters",
+    "chapters_many": "{{count}} chapters",
+    "chapters_other": "{{count}} chapters",
+    "status": {
+      "ongoing": "Ongoing",
+      "completed": "Completed",
+      "hiatus": "Hiatus",
+      "cancelled": "Cancelled",
+      "discontinued": "Discontinued"
+    }
   },
   "help": {
-    "title": "Help"
+    "title": "Help",
+    "intro": "A mini app for finding manga and managing subscriptions: search for a title, open its card and subscribe — the bot will message you about new chapters.",
+    "notifications": "New chapter notifications are sent by the bot — no need to keep the mini app open.",
+    "commandsTitle": "Bot commands",
+    "cmdStart": "greeting and notification opt-in check",
+    "cmdFind": "search manga by title",
+    "cmdList": "list your subscriptions",
+    "cmdHelp": "this help"
   },
   "common": {
     "loading": "Loading…",
@@ -39,8 +60,5 @@
     "network": "No connection to the server",
     "unauthorized": "Failed to verify your identity — reopen the app",
     "unknown": "Unknown error"
-  },
-  "placeholder": {
-    "inProgress": "Screen will appear at stage {{stage}}"
   }
 }
