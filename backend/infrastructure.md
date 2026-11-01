@@ -194,6 +194,34 @@ HMAC-SHA256 (секрет — `HMAC_SHA256(bot_token, "WebAppData")`), свеж�
     MINIAPI_ALLOWED_ORIGIN=
     # MINIAPI_INITDATA_MAX_AGE=24h
 
+### Публичная экспозиция (прод)
+
+Мини-апп на GitHub Pages (`https://SemenovDmitry.github.io/manga-crawler/`)
+ходит на miniapi прямо из браузера Telegram, поэтому miniapi должен быть
+доступен по HTTPS из интернета. Требования:
+
+- **HTTPS обязателен** — страница мини-аппа открыта по HTTPS, и браузер
+  блокирует запросы на HTTP (mixed content); Telegram web_app тоже
+  принимает только HTTPS-адреса.
+- Наружу открывается **только** miniapi; adminapi остаётся локальным/VPN
+  (см. таблицу «Состав» выше).
+- `MINIAPI_ALLOWED_ORIGIN=https://SemenovDmitry.github.io` в .env
+  прод-хоста — иначе браузер заблокирует запросы (CORS).
+- Домен вписывается в переменную репозитория `MINIAPI_PUBLIC_URL`
+  (Settings → Secrets and variables → Actions → Variables) — workflow
+  мини-аппа вшивает её в бандл при сборке; после смены — перезапустить
+  workflow «Деплой miniapp на GitHub Pages».
+
+Способ экспозиции — на усмотрение (реверс-прокси с TLS, туннель): годится
+любой, проксирующий `${MINIAPI_PUBLIC_URL}/mini-api/* → miniapi:8082`
+(остальные пути miniapi не открывать). Пример на Caddy:
+
+```
+manga.example.com {
+    reverse_proxy /mini-api/* localhost:8082
+}
+```
+
 ### Запуск
 
 Docker:

@@ -1,15 +1,18 @@
 # Telegram Mini App — план работ
 
 Статус: **этапы 1 (каркас), 2 (cmd/miniapi), 3 (экраны MVP) и 4 (интеграция
-с ботом) выполнены** — приёмки зелёные (этап 3: полный сценарий в dev-режиме
-против живого miniapi; этап 4: go build/vet/test + tsc/biome/build, deep
-link `?startapp=<id>` в dev-браузере открывает карточку, нечисловой
-параметр игнорируется; приёмка на устройстве (кнопка меню) — после
-этапа 5, когда появится HTTPS-URL). Для dev-сценария — `npm run dev:auth`
-(валидный квиток initData, см. miniapp/AGENTS.md); deep link в dev-браузере
-имитируется адресом `http://localhost:5174/manga-crawler/?startapp=<id>`.
-Далее — этап 5 (деплой GitHub Pages), затем 6 и 7 (сайт с входом через
-Telegram). Стек зафиксирован — как в `admin/`
+с ботом) выполнены**, этап 5 (деплой GitHub Pages) — workflow готов и
+проверен локальной симуляцией прод-сборки; сам деплой — за коротким списком
+ручных шагов (выставить miniapi наружу, две настройки в GitHub, merge в
+master). Приёмки: этап 3 — полный сценарий в dev-режиме против живого
+miniapi; этап 4 — go build/vet/test + tsc/biome/build, deep link
+`?startapp=<id>` в dev-браузере открывает карточку, нечисловой параметр
+игнорируется (приёмка на устройстве закрывается вместе с этапом 5).
+Для dev-сценария — `npm run dev:auth` (валидный квиток initData, см.
+miniapp/AGENTS.md); deep link в dev-браузере имитируется адресом
+`http://localhost:5174/manga-crawler/?startapp=<id>`. Далее — этап 6
+(сдача) и 7 (сайт с входом через Telegram). Стек зафиксирован — как
+в `admin/`
 (Vite + React 19 + TS strict + Tailwind v4 + shadcn + TanStack Query +
 i18next, без TanStack Router/Table/Hook Form — hash-роутинг, форм нет).
 
@@ -144,18 +147,48 @@ dev-браузере открывает карточку (id 45728), пусто�
 чате) — после этапа 5: web_app требует HTTPS, без продового URL
 `MINIAPP_URL` остаётся пустым.
 
-### Этап 5 — деплой GitHub Pages
+### Этап 5 — деплой GitHub Pages (workflow готов, деплой — ручные шаги)
 
-- GitHub Actions: workflow из `miniapp/` → `npm ci && npm run build` →
-  публикация `dist/` в корень артефакта Pages.
-- Vite `base: '/manga-crawler/'`, `VITE_API_BASE_URL` на прод.
-- CORS-настройка `MINIAPI_ALLOWED_ORIGIN` на прод-значение.
-- Наружу выставляется **только** `miniapi`; `adminapi` остаётся
-  локальным/VPN-доступом, как сейчас, в публичную экспозицию не попадает.
-- В BotFather Menu Button = продовый URL.
+- GitHub Actions: `.github/workflows/miniapp-pages.yml` — триггеры: push в
+  `master` при изменениях `miniapp/**` (или самого workflow) + ручной
+  запуск; шаги: `pnpm install --frozen-lockfile` → `pnpm build`
+  (tsc + vite) → публикация `miniapp/dist` в корень артефакта Pages
+  (`actions/deploy-pages`). CI использует pnpm — как в проекте
+  (pnpm-lock.yaml; npm в miniapp не используется, см. AGENTS.md).
+- `VITE_API_BASE_URL` — из переменной репозитория `MINIAPI_PUBLIC_URL`,
+  вшивается в бандл при сборке; переменная не задана — workflow падает
+  с внятной ошибкой. Сменили адрес miniapi — перезапустить workflow.
+- Vite `base: '/manga-crawler/'` — уже настроен (этап 1); локальная
+  симуляция прод-сборки зелёная: `VITE_API_BASE_URL=... pnpm build` →
+  ассеты под `/manga-crawler/assets/`, URL вшит в бандл, `vite preview`
+  отдаёт `/manga-crawler/` и ассеты.
+- CORS: `MINIAPI_ALLOWED_ORIGIN=https://SemenovDmitry.github.io` —
+  прод-значение задокументировано; требования публичной экспозиции
+  miniapi (HTTPS, наружу только miniapi, пример реверс-прокси) —
+  в backend/infrastructure.md («Публичная экспозиция»).
+
+Ручные шаги деплоя (в порядке):
+
+1. Выставить miniapi наружу по HTTPS: любой реверс-прокси/туннель с
+   правилом `${MINIAPI_PUBLIC_URL}/mini-api/* → miniapi:8082`; в .env
+   прод-хоста — `MINIAPI_ALLOWED_ORIGIN=https://SemenovDmitry.github.io`.
+2. GitHub: Settings → Secrets and variables → Actions → Variables →
+   переменная `MINIAPI_PUBLIC_URL` (полный адрес miniapi, без `/mini-api`
+   и без слэша на конце).
+3. GitHub: Settings → Pages → Source: «GitHub Actions».
+4. Влить `develop` в `master` (или запустить workflow вручную) — Pages
+   соберёт и опубликует `https://SemenovDmitry.github.io/manga-crawler/`.
+5. Menu Button: отдельный шаг в BotFather не нужен — бот сам ставит кнопку
+   через `setChatMenuButton`, если в .env прод-хоста задан `MINIAPP_URL`
+   (этап 4); выставить и перезапустить бота.
+6. Проверка с телефона: приложение открывается с продового URL, поиск и
+   подписки работают против продового miniapi; deep link
+   `t.me/<бот>?startapp=<id>` открывает карточку — этим закрывается и
+   отложенная приёмка этапа 4 (кнопка меню, web_app-кнопка в `/find`).
 
 Приёмка: приложение открывается с продового URL на устройстве, поиск и
-подписки работают против продового `miniapi`.
+подписки работают против продового `miniapi` (выполняется после ручных
+шагов).
 
 ### Этап 6 — сдача
 
