@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/Table"
 import { formatDateTime } from "@/lib/format"
 import { showToast } from "@/lib/toastStore"
-import type { ISource } from "@/types/models"
+import type { Source } from "@/types/models"
 import { useResetSourceFullCrawl, useSetSourceEnabled, useSources } from "./queries"
 
 export function Sources() {
@@ -40,7 +40,7 @@ export function Sources() {
   )
 }
 
-function SourcesTable({ sources }: { sources: ISource[] }) {
+function SourcesTable({ sources }: { sources: Source[] }) {
   const { t } = useTranslation()
   const setEnabled = useSetSourceEnabled()
 
@@ -75,7 +75,7 @@ function SourceRow({
   onSetEnabled,
   pending,
 }: {
-  source: ISource
+  source: Source
   onSetEnabled: (v: { id: number; enabled: boolean }) => void
   pending: boolean
 }) {
@@ -105,7 +105,7 @@ function SourceRow({
   )
 }
 
-function RecrawlButton({ source }: { source: ISource }) {
+function RecrawlButton({ source }: { source: Source }) {
   const { t } = useTranslation()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const reset = useResetSourceFullCrawl()

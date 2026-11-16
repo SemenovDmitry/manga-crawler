@@ -15,7 +15,7 @@ import {
 import { useSources } from "@/features/Sources"
 import { formatDateTime } from "@/lib/format"
 import { showToast } from "@/lib/toastStore"
-import type { IManga, IMangaUpdate } from "@/types/models"
+import type { Manga, MangaUpdate } from "@/types/models"
 import { StatusBadge } from "./Manga"
 import { MangaForm } from "./MangaForm"
 import { useDeleteManga, useManga, useUpdateManga } from "./queries"
@@ -47,7 +47,7 @@ export function MangaDetail({ id }: { id: number }) {
         sources={sourcesData?.sources ?? []}
         initial={manga}
         pending={update.isPending}
-        onSubmit={(patch: IMangaUpdate) =>
+        onSubmit={(patch: MangaUpdate) =>
           update.mutateAsync({ id, patch }).then(() => {
             showToast("success", t("manga.saved"))
             setEditing(false)
@@ -90,7 +90,7 @@ function MangaCardView({
   onEdit,
   onDelete,
 }: {
-  manga: IManga
+  manga: Manga
   readerLink: string | null
   deletePending: boolean
   confirmOpen: boolean

@@ -87,19 +87,6 @@ func TestMangalibURLs(t *testing.T) {
 			t.Errorf("IsMangaURL(%s): получено %v, ожидалось %v", tc.url, got, tc.want)
 		}
 	}
-
-	for _, tc := range []struct{ url, want string }{
-		{"https://mangalib.me/ru/manga/277246--maou-taoshita-shi-kaeru-ka", "ru/manga/277246--maou-taoshita-shi-kaeru-ka"},
-		{"https://mangalib.me/ru/manga/175317--futari-de-cherry/", "ru/manga/175317--futari-de-cherry"},
-	} {
-		part, err := driver.MangaURLPart(tc.url)
-		if err != nil {
-			t.Fatalf("MangaURLPart(%s): %v", tc.url, err)
-		}
-		if part != tc.want {
-			t.Errorf("MangaURLPart(%s): получено %q, ожидалось %q", tc.url, part, tc.want)
-		}
-	}
 }
 
 // CardRequest: адрес API-карточки по id--slug и обязательные заголовки

@@ -4,9 +4,16 @@ import (
 	"fmt"
 )
 
-// Subscribe подписывает чат на мангу. Возвращает false, если подписка уже есть.
+// Subscribe подписывает чат на существующую мангу. Возвращает false, если
+// подписка уже есть, ErrMangaNotFound — если манги с таким ID нет.
+// Одна атомарная операция вместо «проверь, потом вставь»: гонка с удалением
+// карточки краулером не создаёт подписку на несуществующую мангу.
 func (s *Store) Subscribe(chatID, mangaID int64) (bool, error) {
-	const query = `INSERT INTO subscriptions (chat_id, manga_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	const query = `
+		INSERT INTO subscriptions (chat_id, manga_id)
+		SELECT $1, $2
+		WHERE EXISTS (SELECT 1 FROM manga WHERE id = $2)
+		ON CONFLICT DO NOTHING`
 
 	res, err := s.db.Exec(query, chatID, mangaID)
 	if err != nil {
@@ -17,8 +24,19 @@ func (s *Store) Subscribe(chatID, mangaID int64) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("ошибка проверки подписки: %w", err)
 	}
+	if affected > 0 {
+		return true, nil
+	}
 
-	return affected > 0, nil
+	// Ничего не вставлено: подписка уже была или манги нет — различаем.
+	subscribed, err := s.IsSubscribed(chatID, mangaID)
+	if err != nil {
+		return false, err
+	}
+	if subscribed {
+		return false, nil
+	}
+	return false, ErrMangaNotFound
 }
 
 // Unsubscribe отменяет подписку чата. Возвращает false, если подписки не было.

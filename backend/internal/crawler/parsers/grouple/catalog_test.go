@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/crawler/parsers"
 )
 
 // Фрагмент повторяет разметку страницы каталога /list движка Grouple
@@ -93,7 +95,7 @@ func TestCatalogProbePage(t *testing.T) {
 			t.Errorf("%s: получено %d карточек, ожидалось %d", file, len(urls), parser.CatalogPageSize())
 		}
 		for _, u := range urls {
-			part, err := parser.MangaURLPart(u)
+			part, err := parsers.URLPath(u)
 			if err != nil || part == "" {
 				t.Errorf("%s: некорректный URL карточки %q (ошибка %v)", file, u, err)
 			}

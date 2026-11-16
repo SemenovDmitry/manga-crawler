@@ -64,16 +64,6 @@ func (d *Parser) IsMangaURL(rawURL string) bool {
 	return !strings.Contains(segments[1], ".")
 }
 
-// MangaURLPart — url-часть манги: путь целиком ("manga/j3pu-shadow-slave").
-func (d *Parser) MangaURLPart(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("некорректный адрес %s: %w", rawURL, err)
-	}
-
-	return strings.Trim(u.Path, "/"), nil
-}
-
 // extractMgekoTitle возвращает основное название манги.
 func extractMgekoTitle(page string) string {
 	match := reMgekoTitle.FindStringSubmatch(page)
@@ -92,18 +82,7 @@ func extractMgekoAltTitles(page string) string {
 		return ""
 	}
 
-	var titles []string
-	seen := make(map[string]bool)
-	for _, part := range reMgekoAltPart.Split(parsers.CleanTitle(match), -1) {
-		part = strings.TrimSpace(part)
-		if part == "" || seen[part] {
-			continue
-		}
-		seen[part] = true
-		titles = append(titles, part)
-	}
-
-	return strings.Join(titles, " / ")
+	return parsers.JoinUnique(reMgekoAltPart.Split(parsers.CleanTitle(match), -1))
 }
 
 // extractMgekoStatus определяет статус публикации по классу блока Status.

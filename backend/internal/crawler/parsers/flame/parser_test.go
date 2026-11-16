@@ -134,14 +134,6 @@ func TestFlameURLs(t *testing.T) {
 			t.Errorf("IsMangaURL(%s): получено %v, ожидалось %v", tc.url, got, tc.want)
 		}
 	}
-
-	part, err := driver.MangaURLPart("https://flamecomics.xyz/series/2/")
-	if err != nil {
-		t.Fatalf("MangaURLPart: %v", err)
-	}
-	if part != "series/2" {
-		t.Errorf("MangaURLPart: получено %q, ожидалось %q", part, "series/2")
-	}
 }
 
 // Статусы — значения поля status в __NEXT_DATA__ (все встречены в /browse).

@@ -96,11 +96,11 @@ func (bot *Bot) confirmCallback(callback *CallbackQuery, chatID, messageID int64
 }
 
 func (bot *Bot) saveChatUser(user *User, chatID int64) {
-	if user == nil || bot.Store == nil {
+	if user == nil || bot.backend == nil {
 		return
 	}
 
-	if _, err := bot.Store.CreateChatUser(storage.ChatUser{
+	if _, err := bot.backend.CreateChatUser(storage.ChatUser{
 		ChatID:   chatID,
 		Username: user.Username,
 		IsActive: true,

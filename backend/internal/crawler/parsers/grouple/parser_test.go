@@ -2,28 +2,6 @@ package grouple
 
 import "testing"
 
-func TestMangaURLPart(t *testing.T) {
-	cases := []struct {
-		raw  string
-		want string
-	}{
-		{"https://1.seimanga.me/asura_2024", "asura_2024"},
-		{"https://a.zazaza.me/one_piece/", "one_piece"},
-		{"https://a.zazaza.me", ""},
-	}
-
-	for _, tc := range cases {
-		got, err := mangaURLPart(tc.raw)
-		if err != nil {
-			t.Errorf("%s: unexpected ошибка: %v", tc.raw, err)
-			continue
-		}
-		if got != tc.want {
-			t.Errorf("%s: получено %q, ожидалось %q", tc.raw, got, tc.want)
-		}
-	}
-}
-
 func TestIsMangaSitemapURL(t *testing.T) {
 	cases := []struct {
 		raw  string

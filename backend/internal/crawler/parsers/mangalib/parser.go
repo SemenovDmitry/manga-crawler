@@ -108,16 +108,6 @@ func (p *Parser) IsMangaURL(rawURL string) bool {
 	return true
 }
 
-// MangaURLPart — url-часть манги: путь целиком ("ru/manga/123--slug").
-func (p *Parser) MangaURLPart(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("некорректный адрес %s: %w", rawURL, err)
-	}
-
-	return strings.Trim(u.Path, "/"), nil
-}
-
 // ParseMangaCard разбирает JSON-ответ API карточки (см. CardRequest):
 // название и альтернативное английское, статус публикации из label.
 // Списка глав в карточке нет — их догружает LoadChapters.

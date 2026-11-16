@@ -6,15 +6,12 @@ type Parser interface {
 }
 
 // SourceDriver — адаптер источника: парсинг карточки плюс правила URL.
-// Реализуется в подпакетах (grouple, mgeko) и регистрируется в краулере
-// по значению sources.engine.
+// Реализуется в подпакетах (grouple, mgeko, flame, remanga, mangalib) и
+// регистрируется в краулере по значению sources.engine.
 type SourceDriver interface {
 	Parser
 	// IsMangaURL — является ли URL из sitemap страницей манги.
 	IsMangaURL(rawURL string) bool
-	// MangaURLPart — url-часть манги для БД ("asura_2024", "manga/slug");
-	// она же ключ уникальности (parse_source_id, url).
-	MangaURLPart(rawURL string) (string, error)
 }
 
 // CatalogLister — необязательная способность драйвера: перечисление карточек

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type ApiError, api, unwrap } from "@/api/client"
 import { useApiToast } from "@/hooks/useApiToast"
-import type { IMangaCreate, IMangaUpdate } from "@/types/models"
+import type { MangaCreate, MangaUpdate } from "@/types/models"
 import type { MangaSearch } from "./search"
 
 function mangaListKey(params: MangaSearch) {
@@ -54,7 +54,7 @@ export function useCreateManga() {
   const toastError = useApiToast()
 
   return useMutation({
-    mutationFn: async (body: IMangaCreate) => {
+    mutationFn: async (body: MangaCreate) => {
       const res = await api.POST("/manga", { body })
       return unwrap(res)
     },
@@ -68,7 +68,7 @@ export function useUpdateManga() {
   const toastError = useApiToast()
 
   return useMutation({
-    mutationFn: async ({ id, patch }: { id: number; patch: IMangaUpdate }) => {
+    mutationFn: async ({ id, patch }: { id: number; patch: MangaUpdate }) => {
       const res = await api.PATCH("/manga/{id}", { params: { path: { id } }, body: patch })
       return unwrap(res)
     },

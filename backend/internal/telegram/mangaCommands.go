@@ -1,12 +1,13 @@
 package telegram
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"html"
 	"log"
 	"strings"
+
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
 const (
@@ -21,7 +22,7 @@ func (bot *Bot) handleFind(chatID int64, query string) {
 		return
 	}
 
-	results, err := bot.Store.SearchManga(query, findResultsLimit)
+	results, err := bot.backend.SearchManga(query, findResultsLimit)
 	if err != nil {
 		log.Printf("Ошибка поиска по запросу %q: %v", query, err)
 		bot.sendMessageToChat(chatID, textSearchError, true)
@@ -37,23 +38,38 @@ func (bot *Bot) handleFind(chatID int64, query string) {
 		chatID,
 		formatFindResults(query, results),
 		true,
-		findResultsKeyboard(results, bot.MiniAppURL),
+		findResultsKeyboard(results, bot.miniAppURL),
 	)
+}
+
+// getMangaForAction загружает мангу для команды подписки/отписки.
+// ok=false — reply содержит готовый текст ответа: манга не найдена
+// или произошла ошибка хранилища.
+func (bot *Bot) getMangaForAction(mangaID int64) (manga storage.Manga, reply string, ok bool) {
+	manga, err := bot.backend.GetManga(mangaID)
+	if err == nil {
+		return manga, "", true
+	}
+	if errors.Is(err, storage.ErrMangaNotFound) {
+		return storage.Manga{}, fmt.Sprintf(textMangaNotFound, mangaID), false
+	}
+	log.Printf("Ошибка получения манги %d: %v", mangaID, err)
+	return storage.Manga{}, textServerError, false
 }
 
 // subscribeManga подписывает чат на мангу и возвращает текст подтверждения.
 func (bot *Bot) subscribeManga(chatID, mangaID int64) string {
-	manga, err := bot.Store.GetManga(mangaID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Sprintf(textMangaNotFound, mangaID)
-		}
-		log.Printf("Ошибка получения манги %d: %v", mangaID, err)
-		return textServerError
+	manga, reply, ok := bot.getMangaForAction(mangaID)
+	if !ok {
+		return reply
 	}
 
-	created, err := bot.Store.Subscribe(chatID, mangaID)
+	created, err := bot.backend.Subscribe(chatID, mangaID)
 	if err != nil {
+		if errors.Is(err, storage.ErrMangaNotFound) {
+			// Мангу удалили между проверкой и подпиской (гонка с краулером).
+			return fmt.Sprintf(textMangaNotFound, mangaID)
+		}
 		log.Printf("Ошибка подписки чата %d на мангу %d: %v", chatID, mangaID, err)
 		return textServerError
 	}
@@ -67,16 +83,12 @@ func (bot *Bot) subscribeManga(chatID, mangaID int64) string {
 
 // unsubscribeManga отписывает чат от манги и возвращает текст подтверждения.
 func (bot *Bot) unsubscribeManga(chatID, mangaID int64) string {
-	manga, err := bot.Store.GetManga(mangaID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Sprintf(textMangaNotFound, mangaID)
-		}
-		log.Printf("Ошибка получения манги %d: %v", mangaID, err)
-		return textServerError
+	manga, reply, ok := bot.getMangaForAction(mangaID)
+	if !ok {
+		return reply
 	}
 
-	deleted, err := bot.Store.Unsubscribe(chatID, mangaID)
+	deleted, err := bot.backend.Unsubscribe(chatID, mangaID)
 	if err != nil {
 		log.Printf("Ошибка отписки чата %d от манги %d: %v", chatID, mangaID, err)
 		return textServerError
@@ -91,7 +103,7 @@ func (bot *Bot) unsubscribeManga(chatID, mangaID int64) string {
 
 // handleList обрабатывает команду /list — подписки чата.
 func (bot *Bot) handleList(chatID int64) {
-	subscriptions, err := bot.Store.UserSubscriptions(chatID)
+	subscriptions, err := bot.backend.UserSubscriptions(chatID)
 	if err != nil {
 		log.Printf("Ошибка получения подписок чата %d: %v", chatID, err)
 		bot.sendMessageToChat(chatID, textServerError, true)

@@ -55,12 +55,16 @@ HTTP с ретраями и запретом кросс-доменных ред�
 
 ### internal/crawler/parsers
 
-Контракты и драйверы сайтов: общие типы (карточка, глава, статусы) —
-в корне пакета, драйверы движков — в подпакетах
-[grouple](internal/crawler/parsers/grouple) (seimanga, zazaza)
-и [mgeko](internal/crawler/parsers/mgeko). Новый сайт на известном движке
-не требует кода — достаточно INSERT в `sources` с именем движка; новый
-движок добавляется реализацией `SourceDriver` и case в [registry.go](internal/crawler/registry.go).
+Контракты и драйверы сайтов: общие типы (карточка, глава, статусы) и общие
+хелперы (URL-части манги, очистка названий) — в корне пакета, драйверы
+движков — в подпакетах [grouple](internal/crawler/parsers/grouple)
+(seimanga, zazaza), [mgeko](internal/crawler/parsers/mgeko),
+[flame](internal/crawler/parsers/flame) (flamecomics.xyz),
+[remanga](internal/crawler/parsers/remanga) (remanga.org) и
+[mangalib](internal/crawler/parsers/mangalib) (mangalib.me). Новый сайт
+на известном движке не требует кода — достаточно INSERT в `sources` с именем
+движка; новый движок добавляется реализацией `SourceDriver` и case в
+[registry.go](internal/crawler/registry.go).
 Из карточки извлекается статус публикации `publication_status`
 (`ongoing`/`completed`/`hiatus`/`cancelled`/`discontinued`) — манги
 в финальных статусах (`completed`/`cancelled`/`discontinued`) не
@@ -77,7 +81,9 @@ HTTP с ретраями и запретом кросс-доменных ред�
 процессами под advisory-блокировкой. Ключевые сущности: `Source`
 (персональное расписание обхода, флаг `enabled`), `Manga` (url-часть
 уникальна в паре с источником, статус публикации, время проверки),
-`Notification` (очередь с отметкой отправки).
+`Notification` (очередь с отметкой отправки: уведомления подписчикам о
+главах и сервисные сообщения хозяину краулера — без привязки к манге,
+`manga_id` допускает NULL).
 
 ### internal/telegram
 

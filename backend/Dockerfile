@@ -15,6 +15,6 @@ COPY --from=builder /app/manga-crawler-backend .
 COPY --from=builder /app/manga-crawler-crawler .
 COPY --from=builder /app/manga-crawler-adminapi .
 COPY --from=builder /app/manga-crawler-miniapi .
-EXPOSE 8080 8081 8082
+EXPOSE 8081 8082
 ENV TZ=Etc/GMT
 CMD ["./manga-crawler-backend"]

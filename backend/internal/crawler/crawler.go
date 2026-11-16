@@ -397,22 +397,12 @@ func (c *Crawler) crawlSourceUpdates(ctx context.Context, src crawlTarget) error
 
 		rawURL := strings.TrimRight(src.source.BaseURL, "/") + "/" + strings.TrimLeft(manga.URL, "/")
 		err := c.processManga(ctx, src, rawURL)
-		switch {
-		case err == nil:
-			c.noteCardSuccess(src.source.ID)
-		case isCardSkipped(err):
-			// 404: тайтла нет — ни сбой, ни успех (серия пропусков
-			// учитывается внутри processManga).
-		default:
+		outcome, stopErr := c.settleCard(src, "обновления", manga.URL, err)
+		if outcome == cardFailed {
 			failedUpdates++
-			log.Printf("[%s] Ошибка обновления %s: %v", src.source.Name, manga.URL, err)
-			stop, disabled := c.noteCardFailure(src, err)
-			if disabled {
-				return errSourceDisabled{source: src.source.Name}
-			}
-			if stop {
-				return errPassAborted{source: src.source.Name}
-			}
+		}
+		if stopErr != nil {
+			return stopErr
 		}
 
 		if err := c.pace.wait(ctx); err != nil {

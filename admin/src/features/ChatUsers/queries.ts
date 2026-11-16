@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type ApiError, api, unwrap } from "@/api/client"
 import { useApiToast } from "@/hooks/useApiToast"
-import type { IChatUser } from "@/types/models"
+import type { ChatUser } from "@/types/models"
 
 const chatUsersKey = ["chat-users"] as const
 
@@ -44,9 +44,9 @@ export function useSetChatUserEnabled() {
     },
     onMutate: async ({ chatId, enabled }) => {
       await qc.cancelQueries({ queryKey: chatUsersKey })
-      const prev = qc.getQueryData<{ users: IChatUser[] }>(chatUsersKey)
+      const prev = qc.getQueryData<{ users: ChatUser[] }>(chatUsersKey)
       if (prev) {
-        qc.setQueryData<{ users: IChatUser[] }>(chatUsersKey, {
+        qc.setQueryData<{ users: ChatUser[] }>(chatUsersKey, {
           users: prev.users.map((u) =>
             u.chat_id === chatId ? { ...u, enabled, blocked: !enabled } : u,
           ),

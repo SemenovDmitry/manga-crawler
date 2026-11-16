@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"log"
 	"time"
 )
@@ -12,48 +13,62 @@ const (
 )
 
 // StartNotificationDispatch читает очередь notifications и рассылает
-// сообщения подписчикам. Вызывается в горутине из main.
-func (bot *Bot) StartNotificationDispatch() {
+// сообщения подписчикам, пока контекст жив. Вызывается в горутине из main.
+func (bot *Bot) StartNotificationDispatch(ctx context.Context) {
 	log.Println("Запуск рассылки уведомлений...")
 
-	for {
-		notifications, err := bot.Store.PendingNotifications(dispatchBatchLimit)
-		if err != nil {
-			log.Printf("Ошибка чтения очереди уведомлений: %v", err)
-			time.Sleep(dispatchRetryDelay)
-			continue
-		}
+	for ctx.Err() == nil {
+		bot.dispatchBatch(ctx)
+	}
 
-		if len(notifications) == 0 {
-			time.Sleep(dispatchPollInterval)
-			continue
-		}
+	log.Println("Рассылка уведомлений остановлена")
+}
 
-		var sentIDs []int64
-		for _, n := range notifications {
-			if err := bot.sendMessageToChat(n.ChatID, n.Text, true); err != nil {
-				if IsBotBlockedByUser(err) {
-					// Пользователь заблокировал бота: is_active = FALSE
-					// автоматически, уведомление снимается с очереди.
-					// Когда пользователь разблокирует бота и напишет ему,
-					// /start вернёт is_active = TRUE, и доставка возобновится.
-					if markErr := bot.Store.MarkChatUserUnavailable(n.ChatID); markErr != nil {
-						log.Printf("Ошибка отметки недоступности чата %d: %v", n.ChatID, markErr)
-					}
-					sentIDs = append(sentIDs, n.ID)
-					log.Printf("Чат %d заблокировал бота, уведомление %d снято с очереди", n.ChatID, n.ID)
-					continue
+// dispatchBatch разбирает одну порцию очереди: отправка сообщений, отметка
+// отправленных, снятие уведомлений чатов, заблокировавших бота.
+// Недоставленное остаётся в очереди до следующей порции.
+func (bot *Bot) dispatchBatch(ctx context.Context) {
+	notifications, err := bot.backend.PendingNotifications(dispatchBatchLimit)
+	if err != nil {
+		log.Printf("Ошибка чтения очереди уведомлений: %v", err)
+		time.Sleep(dispatchRetryDelay)
+		return
+	}
+
+	if len(notifications) == 0 {
+		time.Sleep(dispatchPollInterval)
+		return
+	}
+
+	var sentIDs []int64
+	for _, n := range notifications {
+		// Остановка между сообщениями: уже отправленное отмечается
+		// в очереди, недоставленное остаётся до следующего запуска.
+		if ctx.Err() != nil {
+			break
+		}
+		if err := bot.sendMessageToChat(n.ChatID, n.Text, true); err != nil {
+			if IsBotBlockedByUser(err) {
+				// Пользователь заблокировал бота: is_active = FALSE
+				// автоматически, уведомление снимается с очереди.
+				// Когда пользователь разблокирует бота и напишет ему,
+				// /start вернёт is_active = TRUE, и доставка возобновится.
+				if markErr := bot.backend.MarkChatUserUnavailable(n.ChatID); markErr != nil {
+					log.Printf("Ошибка отметки недоступности чата %d: %v", n.ChatID, markErr)
 				}
-				log.Printf("Ошибка отправки уведомления %d в чат %d: %v", n.ID, n.ChatID, err)
-				continue // оставляем в очереди, попробуем в следующий раз
+				sentIDs = append(sentIDs, n.ID)
+				log.Printf("Чат %d заблокировал бота, уведомление %d снято с очереди", n.ChatID, n.ID)
+				continue
 			}
-			sentIDs = append(sentIDs, n.ID)
+			log.Printf("Ошибка отправки уведомления %d в чат %d: %v", n.ID, n.ChatID, err)
+			continue // оставляем в очереди, попробуем в следующий раз
 		}
+		sentIDs = append(sentIDs, n.ID)
+	}
 
-		if err := bot.Store.MarkNotificationsSent(sentIDs); err != nil {
-			log.Printf("Ошибка отметки отправленных уведомлений: %v", err)
-		} else if len(sentIDs) > 0 {
-			log.Printf("Отправлено уведомлений: %d", len(sentIDs))
-		}
+	if err := bot.backend.MarkNotificationsSent(sentIDs); err != nil {
+		log.Printf("Ошибка отметки отправленных уведомлений: %v", err)
+	} else if len(sentIDs) > 0 {
+		log.Printf("Отправлено уведомлений: %d", len(sentIDs))
 	}
 }

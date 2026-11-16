@@ -14,22 +14,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/Select"
-import type {
-  IManga,
-  IMangaCreate,
-  IMangaUpdate,
-  IPublicationStatus,
-  ISource,
-} from "@/types/models"
+import type { Manga, MangaCreate, MangaUpdate, PublicationStatus, Source } from "@/types/models"
 import { PUBLICATION_STATUSES } from "@/types/models"
 
 export type MangaFormMode = "create" | "edit"
 
-// Что уходит наружу: create — IMangaCreate, edit — IMangaUpdate (частичный
+// Что уходит наружу: create — MangaCreate, edit — MangaUpdate (частичный
 // PATCH: пустые опциональные поля конвертируются в undefined и не уходят).
 export type MangaFormPayload<M extends MangaFormMode> = M extends "create"
-  ? IMangaCreate
-  : IMangaUpdate
+  ? MangaCreate
+  : MangaUpdate
 
 // Значения формы — строки (удобно для input/select), конвертация в payload
 // на отправке. Опциональные поля: "" = не задано.
@@ -88,8 +82,8 @@ function toPayload<M extends MangaFormMode>(mode: M, values: MangaFormValues): M
 
 export interface MangaFormProps<M extends MangaFormMode = MangaFormMode> {
   mode: M
-  sources: ISource[]
-  initial?: IManga
+  sources: Source[]
+  initial?: Manga
   // Async-колбэк тоже подходит: void-возврат означает «результат не ждём»,
   // индикатор занятости — проп pending.
   onSubmit: (payload: MangaFormPayload<M>) => void
@@ -254,7 +248,7 @@ export function MangaForm<M extends MangaFormMode>({
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={null}>{t("manga.form.statusNotSet")}</SelectItem>
-                        {PUBLICATION_STATUSES.map((s: IPublicationStatus) => (
+                        {PUBLICATION_STATUSES.map((s: PublicationStatus) => (
                           <SelectItem key={s} value={s}>
                             {t(`manga.status.${s}`)}
                           </SelectItem>

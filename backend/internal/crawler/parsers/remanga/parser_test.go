@@ -132,20 +132,6 @@ func TestRemangaURLs(t *testing.T) {
 			t.Errorf("IsMangaURL(%s): получено %v, ожидалось %v", tc.url, got, tc.want)
 		}
 	}
-
-	for _, tc := range []struct{ url, want string }{
-		{"https://remanga.org/manga/pmd-white-rose", "manga/pmd-white-rose"},
-		{"https://remanga.org/manga/pmd-white-rose/main", "manga/pmd-white-rose/main"},
-		{"https://remanga.org/manga/pmd-white-rose/chapters", "manga/pmd-white-rose/chapters"},
-	} {
-		part, err := driver.MangaURLPart(tc.url)
-		if err != nil {
-			t.Fatalf("MangaURLPart(%s): %v", tc.url, err)
-		}
-		if part != tc.want {
-			t.Errorf("MangaURLPart(%s): получено %q, ожидалось %q", tc.url, part, tc.want)
-		}
-	}
 }
 
 // Статусы — enum движка remanga (id из payload; имена — страховка).

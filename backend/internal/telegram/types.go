@@ -5,21 +5,22 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
 type Doer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// Bot — Telegram-бот: long polling, команды, рассылка из очереди.
+// Поля unexported: бот собирается только через InitializeBot (prod) или
+// литералом с фейками (тесты) — caller не расставляет внутренности руками.
 type Bot struct {
-	Token      string
-	ChatID     string
-	MiniAppURL string
-	Client     Doer
-	BotURL     string
-	Store      *storage.Store
+	token       string
+	ownerChatID string // чат хозяина для стартового уведомления
+	miniAppURL  string // пустое — кнопка меню мини-аппа не устанавливается
+	client      Doer
+	botURL      string
+	backend     Backend // хранилище за узким consumer-defined seam-ом
 }
 
 type MessageRequest struct {

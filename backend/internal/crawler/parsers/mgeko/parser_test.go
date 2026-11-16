@@ -123,14 +123,6 @@ func TestMgekoURLs(t *testing.T) {
 			t.Errorf("IsMangaURL(%s): получено %v, ожидалось %v", tc.url, got, tc.want)
 		}
 	}
-
-	part, err := driver.MangaURLPart("https://www.mgeko.cc/manga/j3pu-shadow-slave/")
-	if err != nil {
-		t.Fatalf("MangaURLPart: %v", err)
-	}
-	if part != "manga/j3pu-shadow-slave" {
-		t.Errorf("MangaURLPart: получено %q, ожидалось %q", part, "manga/j3pu-shadow-slave")
-	}
 }
 
 // Статусы — классы блока Status движка mgeko (см. probe-output).

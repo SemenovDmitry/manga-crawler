@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/Table"
 import { formatDateTime } from "@/lib/format"
-import type { IChatUser } from "@/types/models"
+import type { ChatUser } from "@/types/models"
 import { useChatUsers, useSetChatUserEnabled } from "./queries"
 
 export function ChatUsers() {
@@ -45,7 +45,7 @@ export function ChatUsers() {
   )
 }
 
-function ChatUserRow({ user }: { user: IChatUser }) {
+function ChatUserRow({ user }: { user: ChatUser }) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const setEnabled = useSetChatUserEnabled()
@@ -53,9 +53,14 @@ function ChatUserRow({ user }: { user: IChatUser }) {
   return (
     <TableRow
       className="cursor-pointer"
-      onClick={() =>
+      onClick={(e) => {
+        // Переключатель блокировки — интерактив внутри кликабельной строки:
+        // клик по нему (label/input) страницу подписок не открывает.
+        if ((e.target as HTMLElement).closest("input, label")) {
+          return
+        }
         void navigate({ to: "/chat-users/$chatId", params: { chatId: String(user.chat_id) } })
-      }
+      }}
     >
       <TableCell className="font-medium">{user.username || "—"}</TableCell>
       <TableCell className="text-muted-foreground">{user.chat_id}</TableCell>
@@ -64,13 +69,11 @@ function ChatUserRow({ user }: { user: IChatUser }) {
       </TableCell>
       <TableCell>{user.is_active ? t("chatUsers.yes") : t("chatUsers.no")}</TableCell>
       <TableCell>
-        <div onClick={(e) => e.stopPropagation()}>
-          <Switch
-            checked={user.blocked}
-            disabled={setEnabled.isPending}
-            onChange={(e) => setEnabled.mutate({ chatId: user.chat_id, enabled: !e.target.checked })}
-          />
-        </div>
+        <Switch
+          checked={user.blocked}
+          disabled={setEnabled.isPending}
+          onChange={(e) => setEnabled.mutate({ chatId: user.chat_id, enabled: !e.target.checked })}
+        />
       </TableCell>
     </TableRow>
   )
