@@ -9,7 +9,12 @@
 // защитой не прикрыт и пускает с браузерными заголовками mangalib.me:
 //
 //   - карточка: GET api.imglib.info/api/manga/{id}--{slug}
-//   - главы:    GET api.imglib.info/api/manga/{slug}/chapters
+//   - главы:    GET api.imglib.info/api/manga/{id}--{slug}/chapters
+//
+// Ресурс ищется по slug_url ({id}--{slug}): по голому slug эндпоинт глав
+// отвечает 404 (изменилось между 2026-11-01 и 2026-11-04). Фронтенд сайта
+// ходит к тому же бэкенду под другим именем — api.cdnrulib.link; если
+// imglib.info перестанет отвечать, базовый адрес стоит поменять на него.
 //
 // Заголовки (проверено 2026-11-01): Referer https://mangalib.me/ обязателен
 // (без него 403), Site-Id: 1 выбирает базу mangalib (без него 404 — API
@@ -179,19 +184,19 @@ func statusFromLabel(label string) string {
 // все главы сразу. У «Руманга» и додзинси глав в API нет (404) — карточка
 // сохранится без глав, это не сбой.
 func (p *Parser) LoadChapters(ctx context.Context, load parsers.PageLoader, urlPart string, card *parsers.MangaCard) error {
-	slug := slugFromURLPart(urlPart)
-	if slug == "" {
-		return fmt.Errorf("не удалось извлечь slug из url-части %q", urlPart)
+	idSlug := idSlugFromURLPart(urlPart)
+	if idSlug == "" {
+		return fmt.Errorf("не удалось извлечь id--slug из url-части %q", urlPart)
 	}
 
-	body, err := load(ctx, apiBase+"/manga/"+url.PathEscape(slug)+"/chapters", apiHeaders...)
+	body, err := load(ctx, apiBase+"/manga/"+url.PathEscape(idSlug)+"/chapters", apiHeaders...)
 	if err != nil {
-		return fmt.Errorf("главы %s из API недоступны: %w", slug, err)
+		return fmt.Errorf("главы %s из API недоступны: %w", idSlug, err)
 	}
 
 	chapters, err := parseChaptersAPI(body)
 	if err != nil {
-		return fmt.Errorf("главы %s не разобраны: %w", slug, err)
+		return fmt.Errorf("главы %s не разобраны: %w", idSlug, err)
 	}
 
 	card.Chapters = append(card.Chapters, chapters...)
@@ -206,16 +211,6 @@ func idSlugFromURLPart(urlPart string) string {
 		return ""
 	}
 	return parts[2]
-}
-
-// slugFromURLPart извлекает slug тайтла из url-части
-// ("ru/manga/123--slug" -> "slug").
-func slugFromURLPart(urlPart string) string {
-	pair := strings.SplitN(idSlugFromURLPart(urlPart), "--", 2)
-	if len(pair) != 2 || pair[1] == "" {
-		return ""
-	}
-	return pair[1]
 }
 
 // apiChapters — ответ GET /api/manga/{slug}/chapters: {"data": [...]}.
