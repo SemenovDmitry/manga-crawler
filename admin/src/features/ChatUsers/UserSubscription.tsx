@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/Table"
 import { StatusBadge } from "@/features/Manga"
 import { formatDateTime } from "@/lib/format"
-import type { IManga } from "@/types/models"
+import type { Manga } from "@/types/models"
 import { useChatUserSubscription } from "./queries"
 
 // UserSubscription — подписки одного чата: заголовок с именем пользователя,
@@ -63,7 +63,7 @@ export function UserSubscription({ chatId }: { chatId: number }) {
   )
 }
 
-function SubscriptionRow({ manga }: { manga: IManga }) {
+function SubscriptionRow({ manga }: { manga: Manga }) {
   const navigate = useNavigate()
 
   return (

@@ -27,9 +27,9 @@
 - **`cmd/crawler`** — обход источников: полный обход по расписанию
   (`sources.next_full_crawl_at`, по умолчанию 2 недели) и инкрементальный
   каждые `CRAWL_INTERVAL` (20 минут). Драйверы движков сайтов —
-  `internal/crawler/parsers/{grouple,mgeko}`; новый сайт на известном движке
-  добавляется INSERT-ом в `sources`, новый движок — реализацией
-  `SourceDriver` + case в `internal/crawler/registry.go`.
+  `internal/crawler/parsers/{grouple,mgeko,flame,remanga,mangalib}`; новый
+  сайт на известном движке добавляется INSERT-ом в `sources`, новый движок —
+  реализацией `SourceDriver` + case в `internal/crawler/registry.go`.
 - **`cmd/adminapi`** — HTTP API админ-панели (:8081, префикс `/admin-api`).
   Контракт — `docs/openapi-admin.yaml` (OpenAPI 3.0.3), из него oapi-codegen
   генерирует `internal/adminapi/oapi/api.gen.go` (не править руками;
@@ -59,12 +59,13 @@ SPA над `cmd/adminapi`; контракт API — `backend/docs/openapi-admin.
   `src/api/schema.gen.ts` — ручные типы, дублирующие схему, запрещены.
   Аутентификация — HttpOnly-cookie, при 401 автоматический refresh с
   очередью запросов (middleware, код страниц своей логики refresh не пишет).
-- **Структура**: `src/api` (клиент + auth), `src/features/{Sources,
-  ChatUsers,Manga,...}` (фичи), `src/components/ui` (shadcn), `src/lib`
-  (сторы и утилиты), `src/i18n/{ru,en}.json`, `src/routes` (тонкие
-  файлы-роуты TanStack Router).
+- **Структура**: `src/api` (клиент + auth), `src/features/{Login,
+  Sources,ChatUsers,Manga,...}` (фичи), `src/components/ui` (shadcn),
+  `src/lib` (сторы и утилиты), `src/i18n/{ru,en}.json`, `src/routes`
+  (тонкие файлы-роуты TanStack Router).
 - **Маршруты**: `/login`, `/` → `/manga`, `/sources`, `/chat-users`,
-  `/manga`, `/manga/new`, `/manga/$id`.
+  `/chat-users/$chatId` (подписки чата), `/manga`, `/manga/new`,
+  `/manga/$id`.
 - **Запуск (dev)**: `npm run gen:api` затем `npm run dev` (:5173, Vite
   проксирует `/admin-api → localhost:8081`). Пакетный менеджер — npm
   (pnpm в этой среде не работает, см. `admin/readme.md`).

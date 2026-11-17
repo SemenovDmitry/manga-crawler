@@ -108,16 +108,6 @@ func (p *Parser) IsMangaURL(rawURL string) bool {
 	}
 }
 
-// MangaURLPart — url-часть манги: путь целиком ("manga/slug").
-func (p *Parser) MangaURLPart(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("некорректный адрес %s: %w", rawURL, err)
-	}
-
-	return strings.Trim(u.Path, "/"), nil
-}
-
 // ParseMangaCard разбирает HTML страницы тайтла: данные из RSC-payload,
 // fallback заголовка — h1 разметки. Списка глав в SSR нет, главы
 // догружает LoadChapters.

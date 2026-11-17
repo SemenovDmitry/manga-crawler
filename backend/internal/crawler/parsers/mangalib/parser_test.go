@@ -87,19 +87,6 @@ func TestMangalibURLs(t *testing.T) {
 			t.Errorf("IsMangaURL(%s): получено %v, ожидалось %v", tc.url, got, tc.want)
 		}
 	}
-
-	for _, tc := range []struct{ url, want string }{
-		{"https://mangalib.me/ru/manga/277246--maou-taoshita-shi-kaeru-ka", "ru/manga/277246--maou-taoshita-shi-kaeru-ka"},
-		{"https://mangalib.me/ru/manga/175317--futari-de-cherry/", "ru/manga/175317--futari-de-cherry"},
-	} {
-		part, err := driver.MangaURLPart(tc.url)
-		if err != nil {
-			t.Fatalf("MangaURLPart(%s): %v", tc.url, err)
-		}
-		if part != tc.want {
-			t.Errorf("MangaURLPart(%s): получено %q, ожидалось %q", tc.url, part, tc.want)
-		}
-	}
 }
 
 // CardRequest: адрес API-карточки по id--slug и обязательные заголовки
@@ -158,7 +145,9 @@ func TestMangalibLoadChapters(t *testing.T) {
 	load := func(ctx context.Context, rawURL string, headers ...parsers.ExtraHeader) ([]byte, error) {
 		calls = append(calls, rawURL)
 		gotHeaders = headers
-		if !strings.HasSuffix(rawURL, "/api/manga/maou-taoshita-shi-kaeru-ka/chapters") {
+		// API ищет ресурс по slug_url ({id}--{slug}); по голому slug
+		// отвечает 404 (изменилось между 2026-11-01 и 2026-11-04).
+		if !strings.HasSuffix(rawURL, "/api/manga/277246--maou-taoshita-shi-kaeru-ka/chapters") {
 			t.Errorf("неожиданный запрос API: %s", rawURL)
 		}
 		resp := apiChapters{}
@@ -206,23 +195,18 @@ func TestMangalibLoadChapters(t *testing.T) {
 	}
 }
 
-func TestMangalibSlugFromURLPart(t *testing.T) {
+func TestMangalibIdSlugFromURLPart(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"ru/manga/277246--maou-taoshita-shi-kaeru-ka", "maou-taoshita-shi-kaeru-ka"},
-		{"ru/manga/904--gingitsune", "gingitsune"},
-		{"manga/904--gingitsune", ""},  // без локали
-		{"ru/manga/904--", ""},         // пустой слаг
-		{"ru/manga/gingitsune", ""},    // без id
-		{"ru/manga/904--a--b", "a--b"}, // slug с дефисами-разделителями
+		{"ru/manga/277246--maou-taoshita-shi-kaeru-ka", "277246--maou-taoshita-shi-kaeru-ka"},
+		{"ru/manga/904--gingitsune", "904--gingitsune"},
+		{"ru/manga/904--a--b", "904--a--b"}, // slug с дефисами-разделителями
+		{"manga/904--gingitsune", ""},       // без локали
+		{"ru/book/123--some-book", ""},      // не manga
+		{"ru/manga", ""},                    // нет сегмента карточки
 	}
 	for _, tc := range cases {
-		if got := slugFromURLPart(tc.in); got != tc.want {
-			t.Errorf("slugFromURLPart(%q): получено %q, ожидалось %q", tc.in, got, tc.want)
+		if got := idSlugFromURLPart(tc.in); got != tc.want {
+			t.Errorf("idSlugFromURLPart(%q): получено %q, ожидалось %q", tc.in, got, tc.want)
 		}
-	}
-
-	// idSlug: третий сегмент целиком, для адреса карточки в API.
-	if got := idSlugFromURLPart("ru/manga/274927--kot-baiun"); got != "274927--kot-baiun" {
-		t.Errorf("idSlugFromURLPart: получено %q", got)
 	}
 }

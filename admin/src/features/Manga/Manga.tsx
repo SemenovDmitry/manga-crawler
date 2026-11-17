@@ -23,7 +23,8 @@ import {
 } from "@/components/ui/Table"
 import { useSources } from "@/features/Sources"
 import { formatDateTime } from "@/lib/format"
-import type { IManga, IPublicationStatus } from "@/types/models"
+// Тип Manga алиасится: имя занято компонентом страницы этого файла.
+import type { Manga as MangaModel, PublicationStatus } from "@/types/models"
 import { PUBLICATION_STATUSES } from "@/types/models"
 import { useMangaList } from "./queries"
 import type { MangaSearch } from "./search"
@@ -35,7 +36,7 @@ export interface MangaProps {
 
 // Бейдж статуса публикации: семантические варианты темы.
 const STATUS_VARIANTS: Record<
-  IPublicationStatus,
+  PublicationStatus,
   "default" | "secondary" | "outline" | "destructive"
 > = {
   ongoing: "default",
@@ -45,7 +46,7 @@ const STATUS_VARIANTS: Record<
   discontinued: "destructive",
 }
 
-export function StatusBadge({ status }: { status: IPublicationStatus }) {
+export function StatusBadge({ status }: { status: PublicationStatus }) {
   const { t } = useTranslation()
   return <Badge variant={STATUS_VARIANTS[status]}>{t(`manga.status.${status}`)}</Badge>
 }
@@ -124,7 +125,7 @@ export function Manga({ search, onSearchChange }: MangaProps) {
           onValueChange={(value) =>
             onSearchChange({
               // Вариант выбирается только из этого же списка статусов.
-              status: value ? (value as IPublicationStatus) : undefined,
+              status: value ? (value as PublicationStatus) : undefined,
               page: 1,
             })
           }
@@ -197,7 +198,7 @@ export function Manga({ search, onSearchChange }: MangaProps) {
   )
 }
 
-function MangaRow({ manga, onOpen }: { manga: IManga; onOpen: () => void }) {
+function MangaRow({ manga, onOpen }: { manga: MangaModel; onOpen: () => void }) {
   return (
     // Клик по строке — переход к карточке; контент внутри не интерактивный,
     // поэтому достаточно cursor-pointer.

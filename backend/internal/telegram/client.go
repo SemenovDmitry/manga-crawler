@@ -1,16 +1,12 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
-
-	"github.com/joho/godotenv"
-
-	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
 // BotCommand структура команды бота
@@ -30,33 +26,22 @@ type SetMyCommandsRequest struct {
 	Scope    *BotCommandScope `json:"scope,omitempty"`
 }
 
-func InitializeBot(store *storage.Store) (*Bot, error) {
-	if err := godotenv.Load(); err != nil {
-		log.Println("Файл .env не найден, используются переменные окружения")
+func InitializeBot(cfg Config, backend Backend) (*Bot, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 
-	token := os.Getenv("TELEGRAM_BOT_TOKEN")
-	chatID := os.Getenv("TELEGRAM_CHAT_ID")
-	miniAppURL := os.Getenv("MINIAPP_URL")
-
-	if token == "" {
-		return nil, fmt.Errorf("переменная окружения TELEGRAM_BOT_TOKEN не задана")
-	}
-	if chatID == "" {
-		return nil, fmt.Errorf("переменная окружения TELEGRAM_CHAT_ID не задана")
-	}
-
-	return createBot(token, chatID, miniAppURL, store), nil
+	return createBot(cfg, backend), nil
 }
 
-func createBot(token, chatID, miniAppURL string, store *storage.Store) *Bot {
+func createBot(cfg Config, backend Backend) *Bot {
 	bot := Bot{
-		Token:      token,
-		ChatID:     chatID,
-		MiniAppURL: miniAppURL,
-		Client:     &http.Client{Timeout: 60 * time.Second},
-		BotURL:     fmt.Sprintf("https://api.telegram.org/bot%s", token),
-		Store:      store,
+		token:       cfg.Token,
+		ownerChatID: cfg.OwnerChatID,
+		miniAppURL:  cfg.MiniAppURL,
+		client:      &http.Client{Timeout: 60 * time.Second},
+		botURL:      fmt.Sprintf("https://api.telegram.org/bot%s", cfg.Token),
+		backend:     backend,
 	}
 
 	log.Println("Telegram бот инициализирован")
@@ -64,7 +49,7 @@ func createBot(token, chatID, miniAppURL string, store *storage.Store) *Bot {
 	if err := bot.setBotCommands(); err != nil {
 		log.Printf("Ошибка установки меню команд: %v", err)
 	}
-	if bot.MiniAppURL != "" {
+	if bot.miniAppURL != "" {
 		if err := bot.setChatMenuButton(); err != nil {
 			log.Printf("Ошибка установки кнопки меню: %v", err)
 		}
@@ -107,7 +92,7 @@ func (bot *Bot) setChatMenuButton() error {
 		MenuButton: &MenuButton{
 			Type:   "web_app",
 			Text:   textMenuButton,
-			WebApp: &WebAppInfo{URL: bot.MiniAppURL},
+			WebApp: &WebAppInfo{URL: bot.miniAppURL},
 		},
 	}
 
@@ -120,7 +105,7 @@ func (bot *Bot) setChatMenuButton() error {
 }
 
 func (bot *Bot) sendStartupNotification() error {
-	chatID, err := strconv.ParseInt(bot.ChatID, 10, 64)
+	chatID, err := strconv.ParseInt(bot.ownerChatID, 10, 64)
 	if err != nil {
 		return err
 	}
@@ -128,14 +113,20 @@ func (bot *Bot) sendStartupNotification() error {
 	return bot.sendMessageToChat(chatID, textStartupNotification, false)
 }
 
-func (bot *Bot) StartPolling() {
+// StartPolling читает обновления Telegram, пока контекст жив. Блокирующая:
+// вызывается в горутине из main (long poll getUpdates — до ~35 секунд,
+// выход проверяется между итерациями).
+func (bot *Bot) StartPolling(ctx context.Context) {
 	log.Println("Запуск Telegram polling...")
 
 	var offset int64 = 0
 
-	for {
+	for ctx.Err() == nil {
 		updates, err := bot.getUpdates(offset)
 		if err != nil {
+			if ctx.Err() != nil {
+				break // ошибка — следствие остановки, не логируем
+			}
 			log.Printf("Ошибка получения обновлений: %v", err)
 			time.Sleep(5 * time.Second)
 			continue
@@ -152,4 +143,6 @@ func (bot *Bot) StartPolling() {
 			bot.handleChatMessage(update)
 		}
 	}
+
+	log.Println("Telegram polling остановлен")
 }

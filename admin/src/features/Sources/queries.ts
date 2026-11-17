@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { type ApiError, api, unwrap } from "@/api/client"
 import { useApiToast } from "@/hooks/useApiToast"
-import type { ISource } from "@/types/models"
+import type { Source } from "@/types/models"
 
 const sourcesKey = ["sources"] as const
 
@@ -16,20 +16,13 @@ export function useSources() {
   })
 }
 
-function useSourceErrorToast() {
-  const toast = useApiToast()
-  return (err: unknown) => {
-    // 404 источника после параллельного удаления — частный случай; для
-    // остальных текст даст errorMessages (409/5xx → i18n, остальное — бэкенд).
-    toast(err)
-  }
-}
-
 // Включение/выключение источника — optimistic: свитч реагирует мгновенно,
 // при ошибке значение откатывается и показывается тост.
 export function useSetSourceEnabled() {
   const qc = useQueryClient()
-  const toastError = useSourceErrorToast()
+  // 404 источника после параллельного удаления — частный случай; текст
+  // ошибки даст useApiToast/errorMessages (409/5xx → i18n, остальное — бэкенд).
+  const toastError = useApiToast()
 
   return useMutation({
     mutationFn: async ({ id, enabled }: { id: number; enabled: boolean }) => {
@@ -41,9 +34,9 @@ export function useSetSourceEnabled() {
     },
     onMutate: async ({ id, enabled }) => {
       await qc.cancelQueries({ queryKey: sourcesKey })
-      const prev = qc.getQueryData<{ sources: ISource[] }>(sourcesKey)
+      const prev = qc.getQueryData<{ sources: Source[] }>(sourcesKey)
       if (prev) {
-        qc.setQueryData<{ sources: ISource[] }>(sourcesKey, {
+        qc.setQueryData<{ sources: Source[] }>(sourcesKey, {
           sources: prev.sources.map((s) => (s.id === id ? { ...s, enabled } : s)),
         })
       }
@@ -64,7 +57,7 @@ export function useSetSourceEnabled() {
 // Сброс полного обхода — по кнопке с подтверждением; optimistic не нужен.
 export function useResetSourceFullCrawl() {
   const qc = useQueryClient()
-  const toastError = useSourceErrorToast()
+  const toastError = useApiToast()
 
   return useMutation({
     mutationFn: async (id: number) => {

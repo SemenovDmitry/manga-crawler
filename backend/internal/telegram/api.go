@@ -16,14 +16,14 @@ func (bot *Bot) callTelegram(method string, in, out any) error {
 	}
 
 	req, err := http.NewRequest(http.MethodPost,
-		fmt.Sprintf("%s/%s", bot.BotURL, method),
+		fmt.Sprintf("%s/%s", bot.botURL, method),
 		bytes.NewBuffer(body))
 	if err != nil {
 		return fmt.Errorf("ошибка создания запроса: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := bot.Client.Do(req)
+	resp, err := bot.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("ошибка отправки запроса: %w", err)
 	}
@@ -34,7 +34,7 @@ func (bot *Bot) callTelegram(method string, in, out any) error {
 func (bot *Bot) getUpdates(offset int64) ([]Update, error) {
 	requestURL := fmt.Sprintf(
 		"%s/getUpdates?offset=%d&timeout=30&allowed_updates=%s",
-		bot.BotURL,
+		bot.botURL,
 		offset,
 		url.QueryEscape(`["message","callback_query"]`),
 	)
@@ -44,7 +44,7 @@ func (bot *Bot) getUpdates(offset int64) ([]Update, error) {
 		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
 
-	resp, err := bot.Client.Do(req)
+	resp, err := bot.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка запроса: %w", err)
 	}

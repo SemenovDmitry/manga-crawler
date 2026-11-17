@@ -82,6 +82,11 @@ func (s *Server) SubscribeManga(c *gin.Context, mangaId oapi.MangaID) {
 	}
 
 	if _, err := s.store.Subscribe(ctxUser(c).ID, mangaId); err != nil {
+		// Мангу удалили между проверкой и подпиской (гонка с краулером).
+		if errors.Is(err, storage.ErrMangaNotFound) {
+			c.JSON(http.StatusNotFound, oapi.Error{Error: "манга не найдена"})
+			return
+		}
 		abortInternal(c, err)
 		return
 	}

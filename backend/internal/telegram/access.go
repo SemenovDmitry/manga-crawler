@@ -8,11 +8,11 @@ import (
 )
 
 func (bot *Bot) userBlocked(chatID int64) bool {
-	if bot.Store == nil {
+	if bot.backend == nil {
 		return false
 	}
 
-	user, err := bot.Store.GetChatUser(chatID)
+	user, err := bot.backend.GetChatUser(chatID)
 	switch {
 	case errors.Is(err, storage.ErrChatUserNotFound):
 		// Пользователя ещё нет в БД — он не заблокирован: бот открыт по умолчанию.

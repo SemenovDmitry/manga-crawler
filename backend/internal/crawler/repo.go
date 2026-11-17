@@ -9,13 +9,10 @@ import (
 // mangaRepo — операции с БД для одной карточки манги (processor.go)
 // и очереди уведомлений (notifier.go).
 type mangaRepo interface {
-	GetMangaState(sourceID int, urlPart string) (storage.MangaState, bool, error)
-	UpsertManga(
-		sourceID int,
-		urlPart, title, altTitles, latestChapter string,
-		publicationStatus storage.PublicationStatus,
-		chaptersCount int,
-	) (int64, error)
+	// SaveMangaCard сохраняет карточку (создаёт или обновляет мангу),
+	// возвращая ID и состояние манги до сохранения — детект новых глав
+	// идёт по нему (processor.go).
+	SaveMangaCard(sourceID int, urlPart string, card storage.MangaCard) (mangaID int64, prev storage.MangaState, found bool, err error)
 	SubscriberChatIDs(mangaID int64) ([]int64, error)
 	EnqueueNotification(chatID, mangaID int64, text string) error
 	// EnqueueServiceNotification — сервисное сообщение хозяину

@@ -4,9 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
 
-	"github.com/joho/godotenv"
+	"github.com/SemenovDmitry/manga-crawler-backend/internal/env"
 	_ "github.com/lib/pq"
 )
 
@@ -14,6 +13,8 @@ type Store struct {
 	db *sql.DB
 }
 
+// NewStore подключается к Postgres (параметры — переменные окружения DB_*,
+// .env загружает запускающий процесс) и применяет миграции.
 func NewStore() (*Store, error) {
 	db, err := initDB()
 	if err != nil {
@@ -40,13 +41,11 @@ func (s *Store) Close() error {
 }
 
 func initDB() (*sql.DB, error) {
-	_ = godotenv.Load()
-
-	host := os.Getenv("DB_HOST")
-	port := os.Getenv("DB_PORT")
-	user := os.Getenv("DB_USER")
-	dbname := os.Getenv("DB_NAME")
-	password := os.Getenv("DB_PASSWORD")
+	host := env.String("DB_HOST", "")
+	port := env.String("DB_PORT", "")
+	user := env.String("DB_USER", "")
+	dbname := env.String("DB_NAME", "")
+	password := env.String("DB_PASSWORD", "")
 
 	connStr := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",

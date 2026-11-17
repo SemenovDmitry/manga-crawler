@@ -86,16 +86,6 @@ func (p *Parser) IsMangaURL(rawURL string) bool {
 	return err == nil && n > 0 && strconv.Itoa(n) == id
 }
 
-// MangaURLPart — url-часть манги: путь целиком ("series/2").
-func (p *Parser) MangaURLPart(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("некорректный адрес %s: %w", rawURL, err)
-	}
-
-	return strings.Trim(u.Path, "/"), nil
-}
-
 // ParseMangaCard разбирает HTML страницы серии. Основной путь — JSON из
 // __NEXT_DATA__ (структура подтверждена probe: pageProps.series.title,
 // .status, pageProps.chapters[].chapter); при его отсутствии — fallback
@@ -161,17 +151,11 @@ func parseNextData(body []byte) (*parsers.MangaCard, bool) {
 // joinAltTitles приводит список альтернативных названий к строке через " / "
 // (формат MangaCard.AltTitles других драйверов), дубли отбрасываются.
 func joinAltTitles(alts []string) string {
-	var titles []string
-	seen := make(map[string]bool)
+	cleaned := make([]string, 0, len(alts))
 	for _, alt := range alts {
-		alt = parsers.CleanTitle(alt)
-		if alt == "" || seen[alt] {
-			continue
-		}
-		seen[alt] = true
-		titles = append(titles, alt)
+		cleaned = append(cleaned, parsers.CleanTitle(alt))
 	}
-	return strings.Join(titles, " / ")
+	return parsers.JoinUnique(cleaned)
 }
 
 // chaptersFromJSON переводит главы из JSON в parsers.Chapter: номер

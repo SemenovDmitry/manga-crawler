@@ -10,10 +10,6 @@ import (
 	"github.com/SemenovDmitry/manga-crawler-backend/internal/storage"
 )
 
-// SourceInfo — минимальные данные источника для сообщений и логов
-// (имя и базовый адрес), без зависимости от storage в сигнатурах.
-type SourceInfo = storage.Source
-
 // maxNotificationChapters — сколько номеров глав показывать в уведомлении;
 // остальное сворачивается в «(и ещё N)».
 const maxNotificationChapters = 5
@@ -116,7 +112,7 @@ func formatNewChaptersMessage(title, rawURL string, newChapters []parsers.Chapte
 
 // formatSourceDisabledMessage собирает текст сервисного сообщения хозяину
 // об автоотключении источника после серии ошибок парсинга.
-func formatSourceDisabledMessage(src SourceInfo, failures int, parseErr error) string {
+func formatSourceDisabledMessage(src storage.Source, failures int, parseErr error) string {
 	return fmt.Sprintf(
 		"🛑 <b>Источник «%s» отключён автоматически</b>\n"+
 			"<i>Парсинг карточек падал %d раз подряд — похоже, сайт изменил разметку.</i>\n\n"+
@@ -133,7 +129,7 @@ func formatSourceDisabledMessage(src SourceInfo, failures int, parseErr error) s
 // об остановке прохода серией ошибок обработки карточек (сайт или API
 // недоступны). В отличие от автоотключения, источник остаётся включённым —
 // действий не требуется, следующий проход повторит попытку сам.
-func formatSourceStoppedMessage(src SourceInfo, failures int, lastErr error) string {
+func formatSourceStoppedMessage(src storage.Source, failures int, lastErr error) string {
 	return fmt.Sprintf(
 		"⚠️ <b>Источник «%s»: проход остановлен</b>\n"+
 			"<i>Обработка карточек падала %d раз подряд — сайт или API недоступны.</i>\n\n"+

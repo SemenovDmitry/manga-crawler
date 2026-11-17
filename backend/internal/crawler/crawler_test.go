@@ -103,8 +103,7 @@ var (
 
 // ——— фейки для тестов без сети и БД ———
 
-// fakeDriver — драйвер-заглушка: карточка всегда парсится, url-часть —
-// последний сегмент пути.
+// fakeDriver — драйвер-заглушка: карточка всегда парсится.
 type fakeDriver struct{}
 
 func (fakeDriver) ParseMangaCard([]byte) (*parsers.MangaCard, error) {
@@ -116,36 +115,22 @@ func (fakeDriver) ParseMangaCard([]byte) (*parsers.MangaCard, error) {
 
 func (fakeDriver) IsMangaURL(rawURL string) bool { return strings.Contains(rawURL, "/manga/") }
 
-func (fakeDriver) MangaURLPart(rawURL string) (string, error) {
-	i := strings.LastIndex(rawURL, "/")
-	if i < 0 {
-		return "", fmt.Errorf("не удалось выделить url-часть из %q", rawURL)
-	}
-	return rawURL[i+1:], nil
-}
-
 // fakeRepo — мок хранилища. Неиспользуемые методы встроенного nil-интерфейса
 // паникуют — тест упадёт громко, если сущность начнёт звать лишнее.
 type fakeRepo struct {
 	repo
 	states map[string]storage.MangaState
 
-	upserts             []string
-	upsertChaptersCount []int
-	upsertLatest        []string
-	notifications       []string
+	savedParts    []string // url-части в порядке сохранения карточек
+	saved         []storage.MangaCard
+	notifications []string
 }
 
-func (f *fakeRepo) GetMangaState(_ int, urlPart string) (storage.MangaState, bool, error) {
-	st, ok := f.states[urlPart]
-	return st, ok, nil
-}
-
-func (f *fakeRepo) UpsertManga(_ int, urlPart string, _, _, latest string, _ storage.PublicationStatus, chaptersCount int) (int64, error) {
-	f.upserts = append(f.upserts, urlPart)
-	f.upsertChaptersCount = append(f.upsertChaptersCount, chaptersCount)
-	f.upsertLatest = append(f.upsertLatest, latest)
-	return int64(len(f.upserts)), nil
+func (f *fakeRepo) SaveMangaCard(_ int, urlPart string, card storage.MangaCard) (int64, storage.MangaState, bool, error) {
+	prev, found := f.states[urlPart]
+	f.savedParts = append(f.savedParts, urlPart)
+	f.saved = append(f.saved, card)
+	return int64(len(f.savedParts)), prev, found, nil
 }
 
 func (f *fakeRepo) SubscriberChatIDs(int64) ([]int64, error) { return []int64{77}, nil }
@@ -174,12 +159,8 @@ type disablingRepo struct {
 	serviceText []string
 }
 
-func (r *disablingRepo) GetMangaState(_ int, _ string) (storage.MangaState, bool, error) {
-	return storage.MangaState{}, false, nil
-}
-
-func (r *disablingRepo) UpsertManga(_ int, urlPart string, _, _, _ string, _ storage.PublicationStatus, _ int) (int64, error) {
-	return 1, nil
+func (r *disablingRepo) SaveMangaCard(int, string, storage.MangaCard) (int64, storage.MangaState, bool, error) {
+	return 1, storage.MangaState{}, false, nil
 }
 
 func (r *disablingRepo) SetSourceEnabled(id int, enabled bool) (storage.Source, error) {
@@ -335,7 +316,7 @@ func TestProcessNewURLsAutoDisableDisabledByConfig(t *testing.T) {
 
 func TestSourceDisabledMessage(t *testing.T) {
 	text := formatSourceDisabledMessage(
-		SourceInfo{Name: "MangaLib", BaseURL: "https://mangalib.me"},
+		storage.Source{Name: "MangaLib", BaseURL: "https://mangalib.me"},
 		20,
 		errors.New("страница не является карточкой манги mangalib (SPA-каркас)"),
 	)
@@ -390,7 +371,7 @@ func TestProcessMangaKeepsChaptersOnLoadError(t *testing.T) {
 
 	newCrawler := func() (*Crawler, *fakeRepo) {
 		store := &fakeRepo{states: map[string]storage.MangaState{
-			"a": {MangaID: 10, LatestChapter: "5", ChaptersCount: 7},
+			"manga/a": {MangaID: 10, LatestChapter: "5", ChaptersCount: 7},
 		}}
 		return New(store, Config{}), store
 	}
@@ -405,11 +386,11 @@ func TestProcessMangaKeepsChaptersOnLoadError(t *testing.T) {
 		if err := c.processManga(context.Background(), target, srv.URL+"/manga/a"); err != nil {
 			t.Fatalf("processManga: неожиданная ошибка: %v", err)
 		}
-		if len(store.upsertChaptersCount) != 1 {
-			t.Fatalf("сохранений: %d, ожидалось 1", len(store.upsertChaptersCount))
+		if len(store.saved) != 1 {
+			t.Fatalf("сохранений: %d, ожидалось 1", len(store.saved))
 		}
-		if got := store.upsertChaptersCount[0]; got != storage.KeepChaptersCount {
-			t.Errorf("chaptersCount=%d, ожидался маркер storage.KeepChaptersCount (%d)", got, storage.KeepChaptersCount)
+		if store.saved[0].ChaptersCount != nil {
+			t.Errorf("ChaptersCount=%d, ожидалось nil (неполный список глав)", *store.saved[0].ChaptersCount)
 		}
 		// Уведомлений нет: главы неполные, но и новых среди них нет
 		// (latest в БД «5», в карточке 1–2).
@@ -426,10 +407,10 @@ func TestProcessMangaKeepsChaptersOnLoadError(t *testing.T) {
 			t.Fatalf("processManga: неожиданная ошибка: %v", err)
 		}
 		// 2 главы карточки + 1 из API.
-		if got := store.upsertChaptersCount[0]; got != 3 {
+		if got := *store.saved[0].ChaptersCount; got != 3 {
 			t.Errorf("chaptersCount=%d, ожидалось 3", got)
 		}
-		if got := store.upsertLatest[0]; got != "6" {
+		if got := store.saved[0].LatestChapter; got != "6" {
 			t.Errorf("latestChapter=%q, ожидалось %q", got, "6")
 		}
 		// Глава 6 новее сохранённой «5» — уведомление ставится в очередь.
@@ -547,12 +528,8 @@ type staleRepo struct {
 	stale []storage.Manga
 }
 
-func (r *staleRepo) GetMangaState(int, string) (storage.MangaState, bool, error) {
-	return storage.MangaState{}, false, nil
-}
-
-func (r *staleRepo) UpsertManga(_ int, urlPart string, _, _, _ string, _ storage.PublicationStatus, _ int) (int64, error) {
-	return 1, nil
+func (r *staleRepo) SaveMangaCard(int, string, storage.MangaCard) (int64, storage.MangaState, bool, error) {
+	return 1, storage.MangaState{}, false, nil
 }
 
 func (r *staleRepo) GetStaleSubscribedManga(int, int, int) ([]storage.Manga, error) {
@@ -638,8 +615,8 @@ func TestProcessMangaCardViaAPI(t *testing.T) {
 	if gotSiteID != "1" {
 		t.Errorf("Site-Id не дошёл до API: %q", gotSiteID)
 	}
-	if len(store.upserts) != 1 {
-		t.Errorf("карточка не сохранена: %v", store.upserts)
+	if len(store.savedParts) != 1 {
+		t.Errorf("карточка не сохранена: %v", store.savedParts)
 	}
 }
 
@@ -667,8 +644,8 @@ func TestProcessMangaNotFoundSkipped(t *testing.T) {
 	if res.failed != 0 || res.processed != 0 {
 		t.Errorf("failed=%d processed=%d, ожидалось 0/0", res.failed, res.processed)
 	}
-	if len(store.upserts) != 0 {
-		t.Errorf("сохранений быть не должно: %v", store.upserts)
+	if len(store.savedParts) != 0 {
+		t.Errorf("сохранений быть не должно: %v", store.savedParts)
 	}
 	// Одна попытка на карточку: 404 не ретраится.
 	if attempts != len(urls) {
@@ -690,11 +667,11 @@ func TestProcessNewURLs(t *testing.T) {
 		srv.URL + "/manga/known", // уже известна (предзагружена в seen)
 		srv.URL + "/manga/a",
 		srv.URL + "/manga/a", // дубликат в самом списке
-		"bad-url",            // url-часть не распознаётся
+		"http://[::1",        // url не распознаётся (url.Parse падает)
 		srv.URL + "/manga/b",
 	}
 
-	seen := urlSet{"known": true}
+	seen := urlSet{"manga/known": true}
 	res, err := c.processNewURLs(context.Background(), src, "Тест", urls, seen)
 	if err != nil {
 		t.Fatalf("processNewURLs: неожиданная ошибка: %v", err)
@@ -702,8 +679,8 @@ func TestProcessNewURLs(t *testing.T) {
 	if res.processed != 2 || res.skipped != 3 {
 		t.Errorf("processed=%d skipped=%d, ожидалось 2/3", res.processed, res.skipped)
 	}
-	if len(store.upserts) != 2 {
-		t.Errorf("сохранено карточек %d, ожидалось 2: %v", len(store.upserts), store.upserts)
+	if len(store.savedParts) != 2 {
+		t.Errorf("сохранено карточек %d, ожидалось 2: %v", len(store.savedParts), store.savedParts)
 	}
 
 	// Повторный вызов с тем же seen: всё уже учтено, ничего не парсится.

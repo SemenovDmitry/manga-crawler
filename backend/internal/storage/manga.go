@@ -125,49 +125,67 @@ func (s *Store) GetMangaState(sourceID int, urlPart string) (MangaState, bool, e
 	return state, true, nil
 }
 
-// KeepChaptersCount — маркер chaptersCount для UpsertManga: главы при этом
-// проходе получить не удалось (временный сбой API догрузки). Прежние
-// chapters_count и latest_chapter сохраняются — иначе сбой выглядел бы как
-// исчезновение глав, а на следующем удачном проходе весь список вернулся
-// бы подписчикам как «новые» главы. Для новой манги записывается 0.
-const KeepChaptersCount = -1
+// MangaCard — данные карточки манги, сохраняемые краулером (SaveMangaCard).
+type MangaCard struct {
+	Title             string
+	AltTitles         string
+	LatestChapter     string
+	PublicationStatus PublicationStatus // пустое — «статус не определён»
+	// ChaptersCount — число глав, полученное в этом проходе. nil — список
+	// глав неполный (сбой догрузки): прежние chapters_count и latest_chapter
+	// сохраняются, чтобы сбой не выглядел как исчезновение глав, а весь
+	// список не ушёл подписчикам «новым» после восстановления API.
+	// Для новой манги при nil записывается 0.
+	ChaptersCount *int
+}
 
-// UpsertManga создаёт запись манги или обновляет её данные, возвращает ID.
+// SaveMangaCard создаёт запись манги или обновляет её данные, возвращая ID,
+// состояние манги ДО сохранения (для детекта новых глав) и признак того,
+// что манга уже была в БД. Чтение состояния и запись — один атомарный
+// запрос: между проходами состояние не может «поплыть».
 // Пустой publicationStatus означает «статус не определён»: при вставке
 // используется ongoing, при обновлении прежнее значение сохраняется —
 // чтобы случайная правка вёрстки не «оживляла» завершённую мангу.
-// chaptersCount = KeepChaptersCount сохраняет прежние главы (chapters_count,
-// latest_chapter), остальные поля обновляются как обычно.
-func (s *Store) UpsertManga(
-	sourceID int, urlPart, title, altTitles, latestChapter string, publicationStatus PublicationStatus, chaptersCount int,
-) (int64, error) {
+func (s *Store) SaveMangaCard(sourceID int, urlPart string, card MangaCard) (mangaID int64, prev MangaState, found bool, err error) {
 	const query = `
-		INSERT INTO manga (parse_source_id, url, title, alt_titles, latest_chapter, publication_status, chapters_count, last_check_at)
-		VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'ongoing'), GREATEST($7, 0), now())
-		ON CONFLICT (parse_source_id, url) DO UPDATE SET
-			title              = EXCLUDED.title,
-			alt_titles         = EXCLUDED.alt_titles,
-			publication_status = CASE
-				WHEN EXCLUDED.publication_status <> 'ongoing' THEN EXCLUDED.publication_status
-				ELSE manga.publication_status END,
-			chapters_count     = CASE
-				WHEN EXCLUDED.chapters_count >= 0 THEN EXCLUDED.chapters_count
-				ELSE manga.chapters_count END,
-			latest_chapter     = CASE
-				WHEN EXCLUDED.chapters_count >= 0 THEN EXCLUDED.latest_chapter
-				ELSE manga.latest_chapter END,
-			last_check_at      = now(),
-			updated_at         = now()
-		RETURNING id`
+		WITH prev AS (
+			SELECT id, latest_chapter, chapters_count
+			FROM manga
+			WHERE parse_source_id = $1 AND url = $2
+		), saved AS (
+			INSERT INTO manga (parse_source_id, url, title, alt_titles, latest_chapter, publication_status, chapters_count, last_check_at)
+			VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'ongoing'), COALESCE($7, 0), now())
+			ON CONFLICT (parse_source_id, url) DO UPDATE SET
+				title              = EXCLUDED.title,
+				alt_titles         = EXCLUDED.alt_titles,
+				publication_status = CASE
+					WHEN EXCLUDED.publication_status <> 'ongoing' THEN EXCLUDED.publication_status
+					ELSE manga.publication_status END,
+				chapters_count     = COALESCE(EXCLUDED.chapters_count, manga.chapters_count),
+				latest_chapter     = CASE
+					WHEN EXCLUDED.chapters_count IS NULL THEN manga.latest_chapter
+					ELSE EXCLUDED.latest_chapter END,
+				last_check_at      = now(),
+				updated_at         = now()
+			RETURNING id
+		)
+		SELECT saved.id,
+		       COALESCE(prev.id, 0),
+		       COALESCE(prev.latest_chapter, ''),
+		       COALESCE(prev.chapters_count, 0),
+		       prev.id IS NOT NULL
+		FROM saved LEFT JOIN prev ON true`
 
-	var id int64
+	var prevID int64
 	if err := s.db.QueryRow(query,
-		sourceID, urlPart, title, altTitles, latestChapter, publicationStatus, chaptersCount,
-	).Scan(&id); err != nil {
-		return 0, fmt.Errorf("ошибка сохранения манги %s: %w", urlPart, err)
+		sourceID, urlPart, card.Title, card.AltTitles, card.LatestChapter,
+		card.PublicationStatus, card.ChaptersCount,
+	).Scan(&mangaID, &prevID, &prev.LatestChapter, &prev.ChaptersCount, &found); err != nil {
+		return 0, MangaState{}, false, fmt.Errorf("ошибка сохранения манги %s: %w", urlPart, err)
 	}
 
-	return id, nil
+	prev.MangaID = prevID
+	return mangaID, prev, found, nil
 }
 
 func (s *Store) GetManga(id int64) (Manga, error) {

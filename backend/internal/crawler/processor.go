@@ -88,7 +88,7 @@ func (c *Crawler) processNewURLs(
 			return res, ctx.Err()
 		}
 
-		urlPart, partErr := src.driver.MangaURLPart(rawURL)
+		urlPart, partErr := parsers.URLPath(rawURL)
 		if partErr != nil || seen.contains(urlPart) {
 			res.skipped++
 			continue
@@ -96,23 +96,15 @@ func (c *Crawler) processNewURLs(
 		seen.add(urlPart)
 
 		err := c.processManga(ctx, src, rawURL)
-		switch {
-		case err == nil:
+		outcome, stopErr := c.settleCard(src, "обработки", rawURL, err)
+		switch outcome {
+		case cardProcessed:
 			res.processed++
-			c.noteCardSuccess(src.source.ID)
-		case isCardSkipped(err):
-			// 404-пропуск: ни сбой, ни успех — серии не трогает
-			// (учёт серии пропусков внутри processManga).
-		default:
+		case cardFailed:
 			res.failed++
-			log.Printf("[%s] Ошибка обработки %s: %v", src.source.Name, rawURL, err)
-			stop, disabled := c.noteCardFailure(src, err)
-			if disabled {
-				return res, errSourceDisabled{source: src.source.Name}
-			}
-			if stop {
-				return res, errPassAborted{source: src.source.Name}
-			}
+		}
+		if stopErr != nil {
+			return res, stopErr
 		}
 
 		if err := c.pace.wait(ctx); err != nil {
@@ -221,7 +213,7 @@ func (c *Crawler) noteCardFailure(src crawlTarget, err error) (stop, disable boo
 		c.failMu.Unlock()
 		if firstStop && c.services != nil {
 			c.services.ServiceMessage(formatSourceStoppedMessage(
-				SourceInfo{Name: src.source.Name, BaseURL: src.source.BaseURL},
+				storage.Source{Name: src.source.Name, BaseURL: src.source.BaseURL},
 				consecutive,
 				err,
 			))
@@ -245,7 +237,7 @@ func (c *Crawler) noteCardFailure(src crawlTarget, err error) (stop, disable boo
 
 	if c.services != nil {
 		c.services.ServiceMessage(formatSourceDisabledMessage(
-			SourceInfo{Name: src.source.Name, BaseURL: src.source.BaseURL},
+			storage.Source{Name: src.source.Name, BaseURL: src.source.BaseURL},
 			consecutive,
 			fmt.Errorf("см. свежие дампы bad-pages источника"),
 		))
@@ -254,15 +246,47 @@ func (c *Crawler) noteCardFailure(src crawlTarget, err error) (stop, disable boo
 	return true, true
 }
 
+// cardOutcome — итог обработки карточки для счётчиков прохода.
+type cardOutcome int
+
+const (
+	cardProcessed cardOutcome = iota // карточка загружена и сохранена
+	cardSkipped                      // 404-пропуск: ни сбой, ни успех
+	cardFailed                       // сбой: сеть, HTTP-статус, парсинг
+)
+
+// settleCard фиксирует результат обработки одной карточки: успех сбрасывает
+// серию ошибок источника (noteCardSuccess), 404-пропуск серий не трогает
+// (учёт серии пропусков внутри processManga), любой сбой логируется и
+// растит серию ошибок — вплоть до остановки прохода и автоотключения
+// источника (noteCardFailure). action — название операции для лога
+// ("обработки", "обновления"). Возвращает исход для счётчиков и stopErr —
+// непустую ошибку, когда проход остановлен (errPassAborted) или источник
+// отключён (errSourceDisabled): вызывающий завершает обход.
+func (c *Crawler) settleCard(src crawlTarget, action, rawURL string, err error) (outcome cardOutcome, stopErr error) {
+	switch {
+	case err == nil:
+		c.noteCardSuccess(src.source.ID)
+		return cardProcessed, nil
+	case isCardSkipped(err):
+		return cardSkipped, nil
+	}
+
+	log.Printf("[%s] Ошибка %s %s: %v", src.source.Name, action, rawURL, err)
+	stop, disabled := c.noteCardFailure(src, err)
+	if disabled {
+		return cardFailed, errSourceDisabled{source: src.source.Name}
+	}
+	if stop {
+		return cardFailed, errPassAborted{source: src.source.Name}
+	}
+	return cardFailed, nil
+}
+
 // processManga загружает страницу манги, обновляет данные в БД
 // и ставит уведомления подписчикам, если появились новые главы.
 func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL string) error {
-	urlPart, err := src.driver.MangaURLPart(rawURL)
-	if err != nil {
-		return err
-	}
-
-	state, found, err := c.store.GetMangaState(src.source.ID, urlPart)
+	urlPart, err := parsers.URLPath(rawURL)
 	if err != nil {
 		return err
 	}
@@ -333,29 +357,36 @@ func (c *Crawler) processManga(ctx context.Context, src crawlTarget, rawURL stri
 		latestChapter = chapters[len(chapters)-1].Number
 	}
 
-	// Сбой догрузки — главы за этот проход неполные: в БД оставляем прежние
-	// chapters_count/latest_chapter (storage.KeepChaptersCount), иначе сбой
+	// Сбой догрузки — главы за этот проход неполные: ChaptersCount=nil
+	// оставляет в БД прежние chapters_count/latest_chapter, иначе сбой
 	// выглядел бы как исчезновение глав, а после восстановления API весь
 	// список ушёл бы подписчикам как «новые».
-	chaptersCount := len(chapters)
-	if loadErr != nil {
-		chaptersCount = storage.KeepChaptersCount
+	var chaptersCount *int
+	if loadErr == nil {
+		count := len(chapters)
+		chaptersCount = &count
 	}
 
-	mangaID, err := c.store.UpsertManga(
-		src.source.ID, urlPart, card.Title, card.AltTitles, latestChapter,
-		storage.PublicationStatus(card.PublicationStatus), chaptersCount,
-	)
+	// Сверка с сохранённым состоянием и запись — один вызов: prev —
+	// состояние до сохранения (детект новых глав), found — манга уже была
+	// в БД. Новые главы ищем только у известных манг: первичная загрузка
+	// проходит без уведомлений. FindNewChaptersSince отсекает старую
+	// историю, впервые попавшую в список драйвера (догрузка глав в mgeko):
+	// после перехода с 50 карточных глав на полный список подписчикам
+	// не уйдут десятки «новых» глав давних месяцев.
+	mangaID, prev, found, err := c.store.SaveMangaCard(src.source.ID, urlPart, storage.MangaCard{
+		Title:             card.Title,
+		AltTitles:         card.AltTitles,
+		LatestChapter:     latestChapter,
+		PublicationStatus: storage.PublicationStatus(card.PublicationStatus),
+		ChaptersCount:     chaptersCount,
+	})
 	if err != nil {
 		return err
 	}
 
-	// Новые главы ищем только у уже известных манг (первичная загрузка без уведомлений).
-	// FindNewChaptersSince отсекает старую историю, впервые попавшую в список
-	// драйвера (догрузка глав в mgeko): после перехода с 50 карточных глав на
-	// полный список подписчикам не уйдут десятки «новых» глав давних месяцев.
 	if found {
-		newChapters := parsers.FindNewChaptersSince(chapters, state.LatestChapter, state.ChaptersCount)
+		newChapters := parsers.FindNewChaptersSince(chapters, prev.LatestChapter, prev.ChaptersCount)
 		if len(newChapters) > 0 {
 			c.notify.NewChapters(mangaID, rawURL, card.Title, newChapters)
 		}

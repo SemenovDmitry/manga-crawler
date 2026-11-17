@@ -3,6 +3,9 @@ bot-start:
 
 build:
 	go build -o manga-crawler-backend ./cmd/bot
+	go build -o manga-crawler-crawler ./cmd/crawler
+	go build -o manga-crawler-adminapi ./cmd/adminapi
+	go build -o manga-crawler-miniapi ./cmd/miniapi
 
 probe:
 	go run ./cmd/probe

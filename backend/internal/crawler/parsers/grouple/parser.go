@@ -40,15 +40,10 @@ func NewParser() *Parser { return &Parser{} }
 var _ parsers.CatalogLister = (*Parser)(nil)
 
 // IsMangaURL — правила URL движка Grouple: страница манги — один сегмент
-// пути без расширения и служебных префиксов.
+// пути без расширения и служебных префиксов. url-часть — путь целиком
+// (parsers.URLPath), у карточек он состоит из одного сегмента.
 func (p *Parser) IsMangaURL(rawURL string) bool {
 	return isMangaSitemapURL(rawURL)
-}
-
-// MangaURLPart — правила URL движка Grouple: url-часть — путь целиком
-// (у карточек он состоит из одного сегмента).
-func (p *Parser) MangaURLPart(rawURL string) (string, error) {
-	return mangaURLPart(rawURL)
 }
 
 // ParseMangaCard разбирает HTML страницы манги: название, альтернативные
@@ -169,20 +164,12 @@ func extractAltTitles(page string) string {
 		return ""
 	}
 
-	var titles []string
-	seen := make(map[string]bool)
+	var parts []string
 	for _, span := range reAltSpan.FindAllStringSubmatch(match, -1) {
-		for _, part := range strings.Split(parsers.CleanTitle(span[1]), "/") {
-			part = strings.TrimSpace(part)
-			if part == "" || seen[part] {
-				continue
-			}
-			seen[part] = true
-			titles = append(titles, part)
-		}
+		parts = append(parts, strings.Split(parsers.CleanTitle(span[1]), "/")...)
 	}
 
-	return strings.Join(titles, " / ")
+	return parsers.JoinUnique(parts)
 }
 
 // extractChapters извлекает главы из ссылок class="chapter-link cp-l".
@@ -208,16 +195,6 @@ func extractChapters(page string) []parsers.Chapter {
 func cleanChapterTitle(raw string) string {
 	text := parsers.CleanTitle(raw)
 	return strings.TrimSpace(reChapterPref.ReplaceAllString(text, ""))
-}
-
-// mangaURLPart извлекает url-часть манги из полного адреса ("asura_2024").
-func mangaURLPart(rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("некорректный адрес %s: %w", rawURL, err)
-	}
-
-	return strings.Trim(u.Path, "/"), nil
 }
 
 // isMangaSitemapURL проверяет, что URL из sitemap — это страница манги
